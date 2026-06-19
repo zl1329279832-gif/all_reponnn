@@ -1,0 +1,178 @@
+[
+  {
+    "id": "res-001",
+    "instrumentId": "inst-001",
+    "experimentName": "蛋白质浓度测定",
+    "owner": "张明",
+    "sampleCount": 24,
+    "remarks": "使用BSA标准曲线法，测定波长280nm",
+    "startTime": "2026-06-15T09:00:00",
+    "endTime": "2026-06-15T11:30:00",
+    "createdAt": "2026-06-10T14:20:00"
+  },
+  {
+    "id": "res-002",
+    "instrumentId": "inst-001",
+    "experimentName": "药物稳定性考察",
+    "owner": "李婷",
+    "sampleCount": 12,
+    "remarks": "不同pH缓冲液条件下的光谱扫描",
+    "startTime": "2026-06-15T14:00:00",
+    "endTime": "2026-06-15T17:00:00",
+    "createdAt": "2026-06-11T09:15:00"
+  },
+  {
+    "id": "res-003",
+    "instrumentId": "inst-002",
+    "experimentName": "聚合物结构表征",
+    "owner": "王强",
+    "sampleCount": 8,
+    "remarks": "ATR模式，扫描次数32次，分辨率4cm-1",
+    "startTime": "2026-06-16T10:00:00",
+    "endTime": "2026-06-16T12:00:00",
+    "createdAt": "2026-06-09T16:40:00"
+  },
+  {
+    "id": "res-004",
+    "instrumentId": "inst-005",
+    "experimentName": "中药指纹图谱研究",
+    "owner": "陈思雨",
+    "sampleCount": 18,
+    "remarks": "C18柱，梯度洗脱，检测波长254nm",
+    "startTime": "2026-06-16T13:30:00",
+    "endTime": "2026-06-16T18:00:00",
+    "createdAt": "2026-06-08T10:30:00"
+  },
+  {
+    "id": "res-005",
+    "instrumentId": "inst-008",
+    "experimentName": "纳米颗粒形貌表征",
+    "owner": "刘伟",
+    "sampleCount": 6,
+    "remarks": "喷金处理，加速电压10kV，观察倍数1~5万倍",
+    "startTime": "2026-06-17T09:00:00",
+    "endTime": "2026-06-17T12:30:00",
+    "createdAt": "2026-06-12T11:00:00"
+  },
+  {
+    "id": "res-006",
+    "instrumentId": "inst-003",
+    "experimentName": "细胞内钙离子浓度检测",
+    "owner": "赵敏",
+    "sampleCount": 36,
+    "remarks": "Fluo-3/AM探针，激发488nm，发射525nm",
+    "startTime": "2026-06-17T14:00:00",
+    "endTime": "2026-06-17T17:30:00",
+    "createdAt": "2026-06-11T15:25:00"
+  },
+  {
+    "id": "res-007",
+    "instrumentId": "inst-006",
+    "experimentName": "土壤中有机污染物筛查",
+    "owner": "孙浩然",
+    "sampleCount": 15,
+    "remarks": "SPME萃取，HP-5MS柱，SCAN模式",
+    "startTime": "2026-06-18T08:30:00",
+    "endTime": "2026-06-18T16:00:00",
+    "createdAt": "2026-06-10T08:50:00"
+  },
+  {
+    "id": "res-008",
+    "instrumentId": "inst-010",
+    "experimentName": "催化剂晶型分析",
+    "owner": "周雪",
+    "sampleCount": 10,
+    "remarks": "Cu靶，管压40kV，管流40mA，2θ范围5~80°",
+    "startTime": "2026-06-19T10:00:00",
+    "endTime": "2026-06-19T14:00:00",
+    "createdAt": "2026-06-13T09:30:00"
+  },
+  {
+    "id": "res-009",
+    "instrumentId": "inst-004",
+    "experimentName": "饮用水重金属检测",
+    "owner": "吴磊",
+    "sampleCount": 30,
+    "remarks": "石墨炉法，检测Pb、Cd、Cr，需做标准加入法",
+    "startTime": "2026-06-22T09:00:00",
+    "endTime": "2026-06-22T12:00:00",
+    "createdAt": "2026-06-14T10:15:00"
+  },
+  {
+    "id": "res-010",
+    "instrumentId": "inst-005",
+    "experimentName": "兽药残留检测",
+    "owner": "郑佳怡",
+    "sampleCount": 22,
+    "remarks": "固相萃取前处理，外标法定量",
+    "startTime": "2026-06-22T13:00:00",
+    "endTime": "2026-06-22T18:30:00",
+    "createdAt": "2026-06-13T14:40:00"
+  },
+  {
+    "id": "res-011",
+    "instrumentId": "inst-009",
+    "experimentName": "免疫荧光定位观察",
+    "owner": "黄凯文",
+    "sampleCount": 8,
+    "remarks": "FITC和Cy3双标，Z轴扫描层厚0.5μm",
+    "startTime": "2026-06-23T09:30:00",
+    "endTime": "2026-06-23T12:30:00",
+    "createdAt": "2026-06-12T16:20:00"
+  },
+  {
+    "id": "res-012",
+    "instrumentId": "inst-007",
+    "experimentName": "酸雨成分分析",
+    "owner": "徐丽娜",
+    "sampleCount": 40,
+    "remarks": "阴阳离子同步测定，淋洗液自动发生",
+    "startTime": "2026-06-23T14:00:00",
+    "endTime": "2026-06-23T18:00:00",
+    "createdAt": "2026-06-11T11:50:00"
+  },
+  {
+    "id": "res-013",
+    "instrumentId": "inst-001",
+    "experimentName": "酶动力学参数测定",
+    "owner": "杨俊",
+    "sampleCount": 16,
+    "remarks": "时间扫描模式，30s间隔，连续检测10min",
+    "startTime": "2026-06-24T09:00:00",
+    "endTime": "2026-06-24T11:00:00",
+    "createdAt": "2026-06-14T08:30:00"
+  },
+  {
+    "id": "res-014",
+    "instrumentId": "inst-008",
+    "experimentName": "薄膜截面形貌分析",
+    "owner": "何欣怡",
+    "sampleCount": 5,
+    "remarks": "冷冻断裂制样，需配备能谱做元素面扫",
+    "startTime": "2026-06-25T10:30:00",
+    "endTime": "2026-06-25T14:30:00",
+    "createdAt": "2026-06-14T13:10:00"
+  },
+  {
+    "id": "res-015",
+    "instrumentId": "inst-006",
+    "experimentName": "香精香料成分鉴定",
+    "owner": "马超",
+    "sampleCount": 12,
+    "remarks": "顶空进样，谱库检索结合保留指数定性",
+    "startTime": "2026-06-26T09:00:00",
+    "endTime": "2026-06-26T15:00:00",
+    "createdAt": "2026-06-13T17:05:00"
+  },
+  {
+    "id": "res-016",
+    "instrumentId": "inst-003",
+    "experimentName": "量子点荧光特性研究",
+    "owner": "朱晓彤",
+    "sampleCount": 9,
+    "remarks": "三维荧光扫描，激发200-800nm，发射同步",
+    "startTime": "2026-06-27T08:30:00",
+    "endTime": "2026-06-27T12:00:00",
+    "createdAt": "2026-06-15T09:45:00"
+  }
+]

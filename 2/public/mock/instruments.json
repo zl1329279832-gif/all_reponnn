@@ -1,0 +1,82 @@
+[
+  {
+    "id": "inst-001",
+    "name": "紫外可见分光光度计",
+    "category": "光谱类",
+    "model": "UV-2600i",
+    "location": "A栋 201室",
+    "description": "用于物质在紫外-可见光区的吸收光谱测量"
+  },
+  {
+    "id": "inst-002",
+    "name": "傅里叶变换红外光谱仪",
+    "category": "光谱类",
+    "model": "IRTracer-100",
+    "location": "A栋 202室",
+    "description": "有机物结构鉴定和定性定量分析"
+  },
+  {
+    "id": "inst-003",
+    "name": "荧光分光光度计",
+    "category": "光谱类",
+    "model": "RF-6000",
+    "location": "A栋 203室",
+    "description": "痕量物质荧光分析检测"
+  },
+  {
+    "id": "inst-004",
+    "name": "原子吸收光谱仪",
+    "category": "光谱类",
+    "model": "AA-7000",
+    "location": "A栋 204室",
+    "description": "金属元素定量分析"
+  },
+  {
+    "id": "inst-005",
+    "name": "高效液相色谱仪",
+    "category": "色谱类",
+    "model": "LC-2030 Plus",
+    "location": "B栋 101室",
+    "description": "有机化合物分离与定量分析"
+  },
+  {
+    "id": "inst-006",
+    "name": "气相色谱-质谱联用仪",
+    "category": "色谱类",
+    "model": "GCMS-QP2020 NX",
+    "location": "B栋 102室",
+    "description": "挥发性有机物定性定量分析"
+  },
+  {
+    "id": "inst-007",
+    "name": "离子色谱仪",
+    "category": "色谱类",
+    "model": "ICS-6000",
+    "location": "B栋 103室",
+    "description": "阴、阳离子分析检测"
+  },
+  {
+    "id": "inst-008",
+    "name": "场发射扫描电子显微镜",
+    "category": "显微类",
+    "model": "SU5000",
+    "location": "C栋 301室",
+    "description": "材料微观形貌观察与能谱分析"
+  },
+  {
+    "id": "inst-009",
+    "name": "激光共聚焦显微镜",
+    "category": "显微类",
+    "model": "LSM 980",
+    "location": "C栋 302室",
+    "description": "生物样品三维成像观察"
+  },
+  {
+    "id": "inst-010",
+    "name": "X射线衍射仪",
+    "category": "分析类",
+    "model": "SmartLab SE",
+    "location": "D栋 101室",
+    "description": "晶体物相定性定量分析"
+  }
+]

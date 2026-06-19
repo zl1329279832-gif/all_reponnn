@@ -1,0 +1,29 @@
+{
+  "intersection": {
+    "laneWidth": 3.5,
+    "lanesPerDirection": 2,
+    "roadLength": 80,
+    "sidewalkWidth": 4
+  },
+  "signal": {
+    "phases": [
+      { "name": "南北直行", "directions": ["N_s", "S_s"], "duration": 200, "yellow": 30 },
+      { "name": "南北左转", "directions": ["N_l", "S_l"], "duration": 120, "yellow": 30 },
+      { "name": "东西直行", "directions": ["E_s", "W_s"], "duration": 200, "yellow": 30 },
+      { "name": "东西左转", "directions": ["E_l", "W_l"], "duration": 120, "yellow": 30 }
+    ],
+    "allRed": 20
+  },
+  "traffic": {
+    "spawnRate": 0.35,
+    "maxVehicles": 300,
+    "cruiseSpeed": 0.35,
+    "accel": 0.008,
+    "decel": 0.025,
+    "minGap": 4.5,
+    "queueGap": 2.2
+  },
+  "hud": {
+    "historyTicks": 60
+  }
+}

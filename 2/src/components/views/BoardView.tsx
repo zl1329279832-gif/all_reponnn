@@ -204,6 +204,8 @@ export function BoardView() {
     Map<string, { clientY: number; slotIdx: number }>
   >(new Map());
   const cellHandles = useRef<Map<string, DroppableCellHandle>>(new Map());
+  const globalPointerY = useRef<number>(0);
+  const pointerUnbind = useRef<(() => void) | null>(null);
 
   const pointerSensor = useSensor(PointerSensor, {
     activationConstraint: { distance: 5 },
@@ -227,16 +229,13 @@ export function BoardView() {
     return Math.max(1, Math.round(mins / SLOT_MINUTES));
   }, [activeReservation]);
 
-  const computeSlotIdxByClientY = useCallback(
-    (droppableId: string, clientY: number): number => {
-      const handle = cellHandles.current.get(droppableId);
-      if (handle) return handle.computeSlotIndex(clientY, TOTAL_SLOTS);
-      const last = slotReports.current.get(droppableId);
-      if (last) return last.slotIdx;
-      return 0;
-    },
-    []
-  );
+  const computeSlotIdx = useCallback((droppableId: string, clientY: number): number => {
+    const last = slotReports.current.get(droppableId);
+    if (last) return last.slotIdx;
+    const handle = cellHandles.current.get(droppableId);
+    if (handle) return handle.computeSlotIndex(clientY, TOTAL_SLOTS);
+    return 0;
+  }, []);
 
   const computeIfOverlap = useCallback(
     (params: {
@@ -258,12 +257,32 @@ export function BoardView() {
     [allReservations]
   );
 
+  function installGlobalPointerListener() {
+    const onMove = (e: PointerEvent) => {
+      globalPointerY.current = e.clientY;
+    };
+    window.addEventListener('pointermove', onMove, true);
+    pointerUnbind.current = () => {
+      window.removeEventListener('pointermove', onMove, true);
+      pointerUnbind.current = null;
+    };
+  }
+
+  function uninstallGlobalPointerListener() {
+    if (pointerUnbind.current) {
+      pointerUnbind.current();
+    }
+  }
+
   function handleDragStart(e: DragStartEvent) {
     const id = String(e.active.id);
     const r = allReservations.find((x) => x.id === id);
+    slotReports.current.clear();
+    const pev = e.activatorEvent as PointerEvent | undefined;
+    globalPointerY.current = pev?.clientY ?? 0;
+    installGlobalPointerListener();
     setActiveId(id);
     setActiveReservation(r ?? null);
-    slotReports.current.clear();
   }
 
   function handleDragOver(e: DragOverEvent) {
@@ -276,12 +295,7 @@ export function BoardView() {
     const meta = decodeDroppableId(String(over.id));
     if (!meta) return;
 
-    const clientY =
-      (e.activatorEvent as PointerEvent | undefined)?.clientY ??
-      (over.rect as DOMRect | null)?.top ??
-      0;
-
-    const slotIdx = computeSlotIdxByClientY(String(over.id), clientY);
+    const slotIdx = computeSlotIdx(String(over.id), globalPointerY.current);
     const day = parseISO(`${meta.dayDate}T00:00:00`);
     const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
     const newStart = addMinutes(base, slotIdx * SLOT_MINUTES);
@@ -310,6 +324,8 @@ export function BoardView() {
   }
 
   function handleDragEnd(e: DragEndEvent) {
+    uninstallGlobalPointerListener();
+
     const resId = String(e.active.id);
     const reservation = allReservations.find((r) => r.id === resId);
     const over = e.over;
@@ -330,11 +346,9 @@ export function BoardView() {
       return;
     }
 
-    const clientY =
-      (e.activatorEvent as PointerEvent | undefined)?.clientY ?? 0;
     const slotIdx = lastPreview
       ? lastPreview.slotIdx
-      : computeSlotIdxByClientY(String(over.id), clientY);
+      : computeSlotIdx(String(over.id), globalPointerY.current);
 
     const day = parseISO(`${meta.dayDate}T00:00:00`);
     const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
@@ -412,6 +426,7 @@ export function BoardView() {
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={() => {
+        uninstallGlobalPointerListener();
         setActiveId(null);
         setActiveReservation(null);
         setPreview(null);

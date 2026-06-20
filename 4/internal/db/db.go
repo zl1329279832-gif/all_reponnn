@@ -38,7 +38,7 @@ func (s *Store) init() error {
 	schemas := []string{
 		`CREATE TABLE IF NOT EXISTS alerts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			fingerprint TEXT NOT NULL UNIQUE,
+			fingerprint TEXT NOT NULL,
 			severity TEXT NOT NULL,
 			service TEXT,
 			env TEXT,
@@ -140,6 +140,8 @@ func (s *Store) UpsertAlert(alert *model.Alert, dedupeWindow time.Duration) (boo
 		alert.ID = existingID
 		alert.DedupeCount = existingDedupeCount + 1
 		alert.StartsAt = existingStartsAt
+		mergedSeverity := maxSeverity(existingSeverity, alert.Severity)
+		alert.Severity = mergedSeverity
 
 		_, err = tx.Exec(`
 			UPDATE alerts 
@@ -446,6 +448,32 @@ func (s *Store) ListAuditLogs(limit, offset int) ([]model.AuditLog, int64, error
 		logs = append(logs, l)
 	}
 	return logs, total, nil
+}
+
+var severityRank = map[string]int{
+	"critical": 4,
+	"error":    3,
+	"warning":  2,
+	"info":     1,
+	"debug":    0,
+}
+
+func maxSeverity(a, b string) string {
+	ra, okA := severityRank[a]
+	rb, okB := severityRank[b]
+	if !okA && !okB {
+		return a
+	}
+	if !okA {
+		return b
+	}
+	if !okB {
+		return a
+	}
+	if ra >= rb {
+		return a
+	}
+	return b
 }
 
 func join(parts []string, sep string) string {

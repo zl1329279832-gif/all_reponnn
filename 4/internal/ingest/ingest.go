@@ -49,12 +49,7 @@ func (s *Service) IngestPrometheus(body []byte) ([]*model.Alert, error) {
 		service := labels["service"]
 		env := labels["env"]
 
-		var fingerprint string
-		if pa.Fingerprint != "" {
-			fingerprint = pa.Fingerprint[:16]
-		} else {
-			fingerprint = model.ComputeFingerprint(labels)
-		}
+		fingerprint := model.ComputeFingerprint(labels)
 
 		onCallGroup, err := s.store.MatchPolicy(service, env, severity)
 		if err != nil {

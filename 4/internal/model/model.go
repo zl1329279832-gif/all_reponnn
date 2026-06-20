@@ -80,6 +80,9 @@ type CustomAlert struct {
 func ComputeFingerprint(labels map[string]string) string {
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
+		if k == "severity" {
+			continue
+		}
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)

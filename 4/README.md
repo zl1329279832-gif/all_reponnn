@@ -46,9 +46,11 @@ GET /api/v1/audit                # 分发审计日志
 
 ## 去重合并规则
 
-- 基于 `fingerprint`（由 labels 哈希计算）作为唯一标识
+- 基于 `fingerprint`（由 labels 哈希计算，**severity 不参与哈希**）作为合并标识
 - **5 分钟窗口**内相同 fingerprint 的推送自动合并
-- 合并时保留最新 `severity`，`dedupe_count` 累加 1
+- 合并时按 `critical > error > warning > info > debug` 取最高 severity，不会降级
+- `dedupe_count` 累加 1，`description` 和其他字段更新为最新值
+- 窗口外同 fingerprint 再来会新开一条告警记录（不会撞唯一约束）
 - 相同 body 重复 POST 不会产生重复记录
 
 ## 策略匹配规则
@@ -82,39 +84,39 @@ curl -X POST http://localhost:8080/api/v1/policies \
   }'
 ```
 
-### 2. 自定义 JSON 告警（测试 dedupe）
+### 2. 自定义 JSON 告警（测试 dedupe 和 severity 升级）
 ```bash
-# 第一次推送（created，dedupe_count=1）
+# 第一次推送：warning 级别（created，dedupe_count=1，severity=warning）
 curl -X POST http://localhost:8080/api/v1/ingest/custom \
   -H "Content-Type: application/json" \
   -d '{
-    "severity": "critical",
+    "severity": "warning",
     "service": "payments",
     "env": "prod",
     "summary": "Payment gateway high latency",
-    "description": "p99 latency > 500ms for 5 minutes",
+    "description": "p99 latency > 500ms for 2 minutes",
     "labels": {
       "region": "us-east-1",
       "instance": "pay-01"
     }
   }'
 
-# 5 分钟内重复推送相同 body（merged，dedupe_count=2）
+# 5 分钟内重复推送相同 body（merged，dedupe_count=2，severity 保持 warning）
 curl -X POST http://localhost:8080/api/v1/ingest/custom \
   -H "Content-Type: application/json" \
   -d '{
-    "severity": "critical",
+    "severity": "warning",
     "service": "payments",
     "env": "prod",
     "summary": "Payment gateway high latency",
-    "description": "p99 latency > 500ms for 5 minutes",
+    "description": "p99 latency > 500ms for 2 minutes",
     "labels": {
       "region": "us-east-1",
       "instance": "pay-01"
     }
   }'
 
-# 第三次推送，severity 升级（merged，dedupe_count=3，severity 更新）
+# 第三次推送：severity 升级为 critical（merged，dedupe_count=3，severity 升级为 critical）
 curl -X POST http://localhost:8080/api/v1/ingest/custom \
   -H "Content-Type: application/json" \
   -d '{
@@ -128,6 +130,43 @@ curl -X POST http://localhost:8080/api/v1/ingest/custom \
       "instance": "pay-01"
     }
   }'
+
+# 第四次推送：severity 降回 warning（merged，dedupe_count=4，severity 保持 critical 不降级）
+curl -X POST http://localhost:8080/api/v1/ingest/custom \
+  -H "Content-Type: application/json" \
+  -d '{
+    "severity": "warning",
+    "service": "payments",
+    "env": "prod",
+    "summary": "Payment gateway high latency",
+    "description": "p99 latency < 300ms, recovering",
+    "labels": {
+      "region": "us-east-1",
+      "instance": "pay-01"
+    }
+  }'
+```
+
+### 2b. 测试 5 分钟窗口过期（可选，需等待）
+```bash
+# 等待 5 分钟后，推送同 fingerprint 告警
+# 应该新开一条记录（created，dedupe_count=1），而不是合并到旧记录
+curl -X POST http://localhost:8080/api/v1/ingest/custom \
+  -H "Content-Type: application/json" \
+  -d '{
+    "severity": "warning",
+    "service": "payments",
+    "env": "prod",
+    "summary": "Payment gateway high latency",
+    "description": "latency spike again",
+    "labels": {
+      "region": "us-east-1",
+      "instance": "pay-01"
+    }
+  }'
+
+# 此时查询告警应该有 2 条不同 ID 的记录，fingerprint 相同
+curl "http://localhost:8080/api/v1/alerts?service=payments"
 ```
 
 ### 3. Prometheus webhook 告警
@@ -191,11 +230,17 @@ curl "http://localhost:8080/api/v1/audit?limit=10"
 
 ### 7. 验证去重结果
 ```bash
-# 查看告警列表，验证相同 fingerprint 只有 1 条记录，dedupe_count=3
+# 查看告警列表，验证：
+# - 相同 fingerprint 只有 1 条记录
+# - dedupe_count=4（1次 created + 3次 merged）
+# - severity 保持 critical（升级后不降级）
 curl "http://localhost:8080/api/v1/alerts?service=payments" | python3 -m json.tool
 
-# 查看 audit 日志，验证有 created + 2 次 merged 记录
+# 查看 audit 日志，验证有 1 次 created + 3 次 merged 记录
 curl "http://localhost:8080/api/v1/audit" | python3 -m json.tool
+
+# 验证 fingerprint 一致性：虽然 severity 变了，但 fingerprint 相同
+# 对比第1次和第3次推送返回的 fingerprint 字段
 ```
 
 ## 数据模型

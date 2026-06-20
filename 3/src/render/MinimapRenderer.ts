@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { AppConfig, LaneId, LightState } from '../types';
 
 export class MinimapRenderer {
-  private readonly canvas: HTMLCanvasElement;
+  readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly config: AppConfig;
 

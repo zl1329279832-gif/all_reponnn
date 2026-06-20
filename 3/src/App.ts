@@ -100,6 +100,9 @@ export class App {
       this.config
     );
 
+    window.addEventListener('resize', this._onResize);
+    this._onResize();
+
     this._updateStatusText();
   }
 
@@ -123,6 +126,17 @@ export class App {
     };
     apply();
   }
+
+  private _onResize = (): void => {
+    const mmCanvas = this.minimap.canvas;
+    const mmRect = mmCanvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.minimap.resize(Math.max(1, Math.floor(mmRect.width * dpr)), Math.max(1, Math.floor(mmRect.height * dpr)));
+
+    const hudCanvas = this.hud.canvas;
+    const hudRect = hudCanvas.getBoundingClientRect();
+    this.hud.resize(Math.max(1, Math.floor(hudRect.width * dpr)), Math.max(1, Math.floor(hudRect.height * dpr)));
+  };
 
   private _defaultConfig(): AppConfig {
     return {
@@ -228,6 +242,7 @@ export class App {
 
   destroy(): void {
     cancelAnimationFrame(this._rafId);
+    window.removeEventListener('resize', this._onResize);
     this.input.dispose();
     this.vehicleRenderer.dispose();
     this.road.dispose();

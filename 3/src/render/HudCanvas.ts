@@ -12,7 +12,7 @@ const LANE_LABELS: Record<LaneId, string> = {
 };
 
 export class HudCanvas {
-  private readonly canvas: HTMLCanvasElement;
+  readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly titleEl: HTMLElement;
   private readonly config: AppConfig;

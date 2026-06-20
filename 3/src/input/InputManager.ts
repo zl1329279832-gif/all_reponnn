@@ -26,6 +26,9 @@ export class InputManager {
   private _hoveredLane: LaneId | null = null;
   private _hoveredInstanceId: number = -1;
 
+  get hoveredLane(): LaneId | 'none' { return this._hoveredLane ?? 'none'; }
+  get hoveredInstanceId(): number { return this._hoveredInstanceId; }
+
   paused = false;
 
   constructor(

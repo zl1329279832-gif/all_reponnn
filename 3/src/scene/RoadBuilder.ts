@@ -106,18 +106,20 @@ export class RoadBuilder {
       const dx = d.ex - d.sx;
       const dz = d.ez - d.sz;
       const len = Math.hypot(dx, dz) + 4;
-      const laneGeo = new THREE.PlaneGeometry(laneWidth * 0.95, len);
+      const laneGeo = new THREE.BoxGeometry(laneWidth * 0.95, 10, len);
       const laneMat = laneMatBase.clone();
       (laneMat as THREE.MeshStandardMaterial).opacity = 0.0;
+      (laneMat as THREE.MeshStandardMaterial).depthWrite = false;
       const mesh = new THREE.Mesh(laneGeo, laneMat);
-      mesh.rotation.x = -Math.PI / 2;
       mesh.position.set(
         (d.sx + d.ex) / 2,
-        0.02,
+        0,
         (d.sz + d.ez) / 2
       );
-      const heading = Math.atan2(dz, dx);
-      mesh.rotation.z = -heading;
+      const ndirLen = Math.hypot(dx, dz) || 1;
+      const ndx = dx / ndirLen;
+      const ndz = dz / ndirLen;
+      mesh.rotation.y = Math.atan2(ndx, ndz);
       mesh.receiveShadow = true;
       mesh.userData = { kind: 'lane', laneId };
       this.group.add(mesh);
@@ -125,17 +127,17 @@ export class RoadBuilder {
 
       const stopX = d.hx;
       const stopZ = d.hz;
-      const ndx = (d.ex - d.hx);
-      const ndz = (d.ez - d.hz);
-      const nlen = Math.hypot(ndx, ndz) || 1;
+      const sdx = (d.ex - d.hx);
+      const sdz = (d.ez - d.hz);
+      const slen = Math.hypot(sdx, sdz) || 1;
       this.laneInfos.set(laneId, {
         laneId,
         stopX,
         stopZ,
         exitX: d.ex,
         exitZ: d.ez,
-        dirX: ndx / nlen,
-        dirZ: ndz / nlen,
+        dirX: sdx / slen,
+        dirZ: sdz / slen,
         centerX: d.sx,
         centerZ: d.sz
       });

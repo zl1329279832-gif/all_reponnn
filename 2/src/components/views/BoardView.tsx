@@ -241,6 +241,15 @@ export function BoardView() {
     return 0;
   }, []);
 
+  const findDroppableByPoint = useCallback((clientX: number, clientY: number): string | null => {
+    for (const [id, handle] of cellHandles.current) {
+      if (handle.containsPoint(clientX, clientY)) {
+        return id;
+      }
+    }
+    return null;
+  }, []);
+
   const computeIfOverlapByRef = useCallback(
     (params: {
       reservationId: string;
@@ -301,6 +310,13 @@ export function BoardView() {
     const onMove = (e: PointerEvent) => {
       globalPointerY.current = e.clientY;
       globalPointerX.current = e.clientX;
+      if (!activeReservationRef.current) return;
+      if (!currentOverId.current) {
+        const found = findDroppableByPoint(e.clientX, e.clientY);
+        if (found) {
+          currentOverId.current = found;
+        }
+      }
       if (currentOverId.current && activeReservationRef.current) {
         updatePreviewForDrop(currentOverId.current, e.clientY);
       }
@@ -326,8 +342,14 @@ export function BoardView() {
     previewRef.current = null;
     activeReservationRef.current = r ?? null;
     const pev = e.activatorEvent as PointerEvent | undefined;
-    globalPointerY.current = pev?.clientY ?? 0;
-    globalPointerX.current = pev?.clientX ?? 0;
+    if (pev) {
+      globalPointerY.current = pev.clientY;
+      globalPointerX.current = pev.clientX;
+      const initialDrop = findDroppableByPoint(pev.clientX, pev.clientY);
+      if (initialDrop) {
+        currentOverId.current = initialDrop;
+      }
+    }
     installGlobalPointerListener();
     setActiveId(id);
     setActiveReservation(r ?? null);
@@ -352,7 +374,8 @@ export function BoardView() {
 
   function handleDragEnd(e: DragEndEvent) {
     const finalY = globalPointerY.current;
-    const finalOverId = currentOverId.current;
+    const finalX = globalPointerX.current;
+    let finalOverId = currentOverId.current;
     uninstallGlobalPointerListener();
     currentOverId.current = null;
     previewRef.current = null;
@@ -360,14 +383,16 @@ export function BoardView() {
 
     const resId = String(e.active.id);
     const reservation = allReservations.find((r) => r.id === resId);
-    const over = e.over;
 
     setActiveId(null);
     setActiveReservation(null);
     setPreview(null);
 
     if (!reservation) return;
-    if (!over || !finalOverId) {
+    if (!finalOverId) {
+      finalOverId = findDroppableByPoint(finalX, finalY);
+    }
+    if (!finalOverId) {
       toast('已取消拖放', 'info', 1400);
       return;
     }

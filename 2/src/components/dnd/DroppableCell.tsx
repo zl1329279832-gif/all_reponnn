@@ -22,6 +22,8 @@ export function decodeDroppableId(
 
 export interface DroppableCellHandle {
   computeSlotIndex(clientY: number, totalSlots: number): number;
+  containsPoint(clientX: number, clientY: number): boolean;
+  getDroppableId(): string;
 }
 
 interface Props {
@@ -72,6 +74,18 @@ export function DroppableCell({
               const relY = Math.max(0, Math.min(rect.height, clientY - rect.top));
               const slotH = rect.height / slots;
               return Math.max(0, Math.min(slots - 1, Math.floor(relY / slotH)));
+            },
+            containsPoint(clientX, clientY) {
+              const rect = el.getBoundingClientRect();
+              return (
+                clientX >= rect.left &&
+                clientX <= rect.right &&
+                clientY >= rect.top &&
+                clientY <= rect.bottom
+              );
+            },
+            getDroppableId() {
+              return id;
             },
           });
         } else {

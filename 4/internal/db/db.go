@@ -35,44 +35,11 @@ func New(path string) (*Store, error) {
 }
 
 func (s *Store) init() error {
-	schemas := []string{
-		`CREATE TABLE IF NOT EXISTS alerts (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			fingerprint TEXT NOT NULL,
-			severity TEXT NOT NULL,
-			service TEXT,
-			env TEXT,
-			summary TEXT,
-			description TEXT,
-			labels TEXT,
-			annotations TEXT,
-			dedupe_count INTEGER DEFAULT 1,
-			source TEXT,
-			raw_payload TEXT,
-			starts_at DATETIME,
-			updated_at DATETIME,
-			on_call_group TEXT
-		)`,
-		`CREATE TABLE IF NOT EXISTS policies (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			service TEXT,
-			env TEXT,
-			severity TEXT,
-			on_call_group TEXT NOT NULL,
-			created_at DATETIME,
-			updated_at DATETIME
-		)`,
-		`CREATE TABLE IF NOT EXISTS audit_logs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			alert_id INTEGER,
-			fingerprint TEXT,
-			action TEXT,
-			on_call_group TEXT,
-			severity TEXT,
-			created_at DATETIME,
-			details TEXT
-		)`,
+	if err := s.migrate(); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
+
+	indexes := []string{
 		`CREATE INDEX IF NOT EXISTS idx_alerts_fingerprint ON alerts(fingerprint)`,
 		`CREATE INDEX IF NOT EXISTS idx_alerts_updated_at ON alerts(updated_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_alerts_service ON alerts(service)`,
@@ -82,13 +49,159 @@ func (s *Store) init() error {
 		`CREATE INDEX IF NOT EXISTS idx_policies_match ON policies(service, env, severity)`,
 	}
 
-	for _, schema := range schemas {
-		if _, err := s.db.Exec(schema); err != nil {
-			return fmt.Errorf("exec schema: %w", err)
+	for _, idx := range indexes {
+		if _, err := s.db.Exec(idx); err != nil {
+			return fmt.Errorf("create index: %w", err)
 		}
 	}
 
 	return nil
+}
+
+func (s *Store) migrate() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`)
+	if err != nil {
+		return err
+	}
+
+	var version int
+	err = s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version)
+	if err != nil {
+		return err
+	}
+
+	if version >= 1 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS policies (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		service TEXT,
+		env TEXT,
+		severity TEXT,
+		on_call_group TEXT NOT NULL,
+		created_at DATETIME,
+		updated_at DATETIME
+	)`)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		alert_id INTEGER,
+		fingerprint TEXT,
+		action TEXT,
+		on_call_group TEXT,
+		severity TEXT,
+		created_at DATETIME,
+		details TEXT
+	)`)
+	if err != nil {
+		return err
+	}
+
+	var alertsExists bool
+	tx.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&alertsExists)
+
+	if alertsExists {
+		var sqlText string
+		err = tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&sqlText)
+		if err != nil {
+			return err
+		}
+
+		hasUniqueConstraint := false
+		for i := 0; i <= len(sqlText)-len("UNIQUE"); i++ {
+			if sqlText[i:i+len("UNIQUE")] == "UNIQUE" {
+				hasUniqueConstraint = true
+				break
+			}
+		}
+
+		if hasUniqueConstraint {
+			_, err = tx.Exec(`
+				CREATE TABLE alerts_new (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					fingerprint TEXT NOT NULL,
+					severity TEXT NOT NULL,
+					service TEXT,
+					env TEXT,
+					summary TEXT,
+					description TEXT,
+					labels TEXT,
+					annotations TEXT,
+					dedupe_count INTEGER DEFAULT 1,
+					source TEXT,
+					raw_payload TEXT,
+					starts_at DATETIME,
+					updated_at DATETIME,
+					on_call_group TEXT
+				)
+			`)
+			if err != nil {
+				return fmt.Errorf("create alerts_new: %w", err)
+			}
+
+			_, err = tx.Exec(`
+				INSERT INTO alerts_new 
+				SELECT id, fingerprint, severity, service, env, summary, description, 
+				       labels, annotations, dedupe_count, source, raw_payload, 
+				       starts_at, updated_at, on_call_group 
+				FROM alerts
+			`)
+			if err != nil {
+				return fmt.Errorf("copy alerts data: %w", err)
+			}
+
+			_, err = tx.Exec(`DROP TABLE alerts`)
+			if err != nil {
+				return fmt.Errorf("drop old alerts: %w", err)
+			}
+
+			_, err = tx.Exec(`ALTER TABLE alerts_new RENAME TO alerts`)
+			if err != nil {
+				return fmt.Errorf("rename alerts_new: %w", err)
+			}
+		}
+	} else {
+		_, err = tx.Exec(`
+			CREATE TABLE alerts (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				fingerprint TEXT NOT NULL,
+				severity TEXT NOT NULL,
+				service TEXT,
+				env TEXT,
+				summary TEXT,
+				description TEXT,
+				labels TEXT,
+				annotations TEXT,
+				dedupe_count INTEGER DEFAULT 1,
+				source TEXT,
+				raw_payload TEXT,
+				starts_at DATETIME,
+				updated_at DATETIME,
+				on_call_group TEXT
+			)
+		`)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = tx.Exec(`INSERT INTO schema_version (version) VALUES (1)`)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (s *Store) Close() error {
@@ -143,6 +256,17 @@ func (s *Store) UpsertAlert(alert *model.Alert, dedupeWindow time.Duration) (boo
 		mergedSeverity := maxSeverity(existingSeverity, alert.Severity)
 		alert.Severity = mergedSeverity
 
+		if alert.Labels == nil {
+			alert.Labels = make(map[string]string)
+		}
+		alert.Labels["severity"] = mergedSeverity
+
+		onCallGroup, err := s.matchPolicyTx(tx, alert.Service, alert.Env, mergedSeverity)
+		if err != nil {
+			return false, fmt.Errorf("match policy: %w", err)
+		}
+		alert.OnCallGroup = onCallGroup
+
 		_, err = tx.Exec(`
 			UPDATE alerts 
 			SET severity = ?, service = ?, env = ?, summary = ?, description = ?,
@@ -171,6 +295,17 @@ func (s *Store) UpsertAlert(alert *model.Alert, dedupeWindow time.Duration) (boo
 	if alert.StartsAt.IsZero() {
 		alert.StartsAt = now
 	}
+
+	if alert.Labels == nil {
+		alert.Labels = make(map[string]string)
+	}
+	alert.Labels["severity"] = alert.Severity
+
+	onCallGroup, err := s.matchPolicyTx(tx, alert.Service, alert.Env, alert.Severity)
+	if err != nil {
+		return false, fmt.Errorf("match policy: %w", err)
+	}
+	alert.OnCallGroup = onCallGroup
 
 	result, err := tx.Exec(`
 		INSERT INTO alerts 
@@ -353,8 +488,20 @@ func (s *Store) DeletePolicy(id int64) error {
 	return err
 }
 
+type queryRunner interface {
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+}
+
 func (s *Store) MatchPolicy(service, env, severity string) (string, error) {
-	rows, err := s.db.Query(`
+	return s.matchPolicyRunner(s.db, service, env, severity)
+}
+
+func (s *Store) matchPolicyTx(tx *sql.Tx, service, env, severity string) (string, error) {
+	return s.matchPolicyRunner(tx, service, env, severity)
+}
+
+func (s *Store) matchPolicyRunner(q queryRunner, service, env, severity string) (string, error) {
+	rows, err := q.Query(`
 		SELECT service, env, severity, on_call_group 
 		FROM policies 
 		ORDER BY 
@@ -385,22 +532,6 @@ func (s *Store) MatchPolicy(service, env, severity string) (string, error) {
 	}
 
 	for _, pm := range matches {
-		score := 0
-		if pm.service == service {
-			score++
-		} else if pm.service != "" && pm.service != "*" {
-			continue
-		}
-		if pm.env == env {
-			score++
-		} else if pm.env != "" && pm.env != "*" {
-			continue
-		}
-		if pm.severity == severity {
-			score++
-		} else if pm.severity != "" && pm.severity != "*" {
-			continue
-		}
 		if pm.service == service || pm.service == "" || pm.service == "*" {
 			if pm.env == env || pm.env == "" || pm.env == "*" {
 				if pm.severity == severity || pm.severity == "" || pm.severity == "*" {

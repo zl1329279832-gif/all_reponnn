@@ -3,6 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
+	"strconv"
+	"time"
 
 	"alert-aggregator/internal/db"
 	"alert-aggregator/internal/handler"
@@ -13,12 +16,20 @@ func main() {
 	store, err := db.New("./alerts.db")
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
-}
-defer store.Close()
-log.Println("Database initialized successfully")
+	}
+	defer store.Close()
+	log.Println("Database initialized successfully")
 
-	ingestSvc := ingest.NewService(store)
-h := handler.New(store, ingestSvc)
+	dedupeWindow := 5 * time.Minute
+	if v := os.Getenv("DEDUPE_WINDOW_SECONDS"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			dedupeWindow = time.Duration(secs) * time.Second
+		}
+	}
+	log.Printf("Dedupe window: %v", dedupeWindow)
+
+	ingestSvc := ingest.NewService(store, dedupeWindow)
+	h := handler.New(store, ingestSvc)
 
 	mux := http.NewServeMux()
 

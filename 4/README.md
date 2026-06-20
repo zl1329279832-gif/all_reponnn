@@ -11,6 +11,18 @@ go run main.go
 
 服务启动在 `:8080`，数据库文件 `./alerts.db` 自动创建。
 
+### 环境变量配置
+
+| 变量名 | 默认值 | 说明 |
+|--------|--------|------|
+| `DEDUPE_WINDOW_SECONDS` | `300` (5分钟) | 去重合并时间窗口，单位秒。测试时可设为较小值如 `5` 加速验证 |
+
+示例（Windows PowerShell）：
+```powershell
+$env:DEDUPE_WINDOW_SECONDS = "5"
+go run main.go
+```
+
 ## API 路由
 
 ### 健康检查

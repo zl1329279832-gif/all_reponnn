@@ -14,10 +14,10 @@ type Service struct {
 	dedupeWindow time.Duration
 }
 
-func NewService(store *db.Store) *Service {
+func NewService(store *db.Store, dedupeWindow time.Duration) *Service {
 	return &Service{
 		store:        store,
-		dedupeWindow: 5 * time.Minute,
+		dedupeWindow: dedupeWindow,
 	}
 }
 

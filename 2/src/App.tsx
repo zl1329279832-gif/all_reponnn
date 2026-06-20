@@ -2,6 +2,7 @@ import { InstrumentSidebar } from './components/sidebar/InstrumentSidebar';
 import { TopBar } from './components/layout/TopBar';
 import { MainViewport } from './components/layout/MainViewport';
 import { EditingDrawer } from './components/drawer/EditingDrawer';
+import { ToastContainer } from './components/common/ToastContainer';
 import { useMockDataLoader } from './hooks/useMockDataLoader';
 
 function App() {
@@ -54,6 +55,7 @@ function App() {
         <MainViewport />
       </div>
       <EditingDrawer />
+      <ToastContainer />
     </div>
   );
 }

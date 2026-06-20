@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, useCallback } from 'react';
 import {
   DndContext,
   DragOverlay,
-  closestCorners,
+  closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
@@ -12,6 +12,11 @@ import {
 } from '@dnd-kit/core';
 import { useScheduleStore } from '../../store/scheduleStore';
 import { ReservationCard } from '../common/ReservationCard';
+import {
+  DroppableCell,
+  decodeDroppableId,
+  type DroppableCellHandle,
+} from '../dnd/DroppableCell';
 import type { Reservation, Instrument } from '../../types';
 import {
   getWeekDates,
@@ -28,11 +33,25 @@ import {
   startOfDay,
   setHours,
   setMinutes,
+  hasOverlap,
 } from '../../utils/dateUtils';
+import { toast } from '../../store/toastStore';
 
-interface CellDroppable {
+const TOTAL_SLOTS = ((DAY_END_HOUR - DAY_START_HOUR) * 60) / SLOT_MINUTES;
+
+interface DropTargetWithDuration {
   instrumentId: string;
   day: Date;
+  slotIdx: number;
+  wouldOverlap: boolean;
+  durationSlots: number;
+}
+
+function formatDateOnlyISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 export function CalendarView() {
@@ -45,14 +64,16 @@ export function CalendarView() {
   const openDrawer = useScheduleStore((s) => s.openDrawer);
 
   const weekDates = getWeekDates(parseISO(weekStart));
-  const totalSlots = ((DAY_END_HOUR - DAY_START_HOUR) * 60) / SLOT_MINUTES;
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{
-    instrumentId: string;
-    day: Date;
-    slotIdx: number;
-  } | null>(null);
+  const [activeReservation, setActiveReservation] =
+    useState<Reservation | null>(null);
+  const [preview, setPreview] = useState<DropTargetWithDuration | null>(null);
+
+  const slotReports = useRef<
+    Map<string, { slotIdx: number }>
+  >(new Map());
+  const cellHandles = useRef<Map<string, DroppableCellHandle>>(new Map());
 
   const pointerSensor = useSensor(PointerSensor, {
     activationConstraint: { distance: 5 },
@@ -65,10 +86,6 @@ export function CalendarView() {
       : instruments;
   }, [instruments, selectedIds]);
 
-  const activeReservation = activeId
-    ? allReservations.find((r) => r.id === activeId)
-    : null;
-
   const overlapsByInst = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const inst of selectedInstruments) {
@@ -77,98 +94,223 @@ export function CalendarView() {
     return map;
   }, [selectedInstruments, findOverlaps]);
 
+  const computeSlotIdxByClientY = useCallback(
+    (droppableId: string, clientY: number): number => {
+      const handle = cellHandles.current.get(droppableId);
+      if (handle) return handle.computeSlotIndex(clientY, TOTAL_SLOTS);
+      const last = slotReports.current.get(droppableId);
+      if (last) return last.slotIdx;
+      return 0;
+    },
+    []
+  );
+
+  const computeIfOverlap = useCallback(
+    (params: {
+      reservationId: string;
+      instrumentId: string;
+      startTimeISO: string;
+      endTimeISO: string;
+    }): boolean => {
+      const siblings = allReservations.filter(
+        (r) =>
+          r.instrumentId === params.instrumentId &&
+          r.id !== params.reservationId
+      );
+      return hasOverlap(
+        { startTime: params.startTimeISO, endTime: params.endTimeISO },
+        siblings
+      );
+    },
+    [allReservations]
+  );
+
   function handleDragStart(e: DragStartEvent) {
-    setActiveId(String(e.active.id));
+    const id = String(e.active.id);
+    const r = allReservations.find((x) => x.id === id);
+    setActiveId(id);
+    setActiveReservation(r ?? null);
+    slotReports.current.clear();
   }
 
   function handleDragOver(e: DragOverEvent) {
-    const ev = e.activatorEvent as PointerEvent;
-    const el = document.elementFromPoint(ev.clientX, ev.clientY);
-    const cell = el?.closest('[data-cal-cell="true"]') as HTMLElement | null;
-    if (!cell) return;
-    const instId = cell.dataset.instrumentId;
-    const dateStr = cell.dataset.dayDate;
-    if (!instId || !dateStr) return;
-    const rect = cell.getBoundingClientRect();
-    const y = ev.clientY - rect.top;
-    const slotHeight = rect.height / totalSlots;
-    const slotIdx = Math.max(0, Math.min(totalSlots - 1, Math.floor(y / slotHeight)));
-    setPreview({ instrumentId: instId, day: parseISO(dateStr), slotIdx });
+    if (!activeReservation) return;
+    const over = e.over;
+    if (!over) {
+      setPreview(null);
+      return;
+    }
+    const meta = decodeDroppableId(String(over.id));
+    if (!meta) return;
+
+    const clientY =
+      (e.activatorEvent as PointerEvent | undefined)?.clientY ??
+      (over.rect as DOMRect | null)?.top ??
+      0;
+
+    const slotIdx = computeSlotIdxByClientY(String(over.id), clientY);
+    const day = parseISO(`${meta.dayDate}T00:00:00`);
+    const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
+    const newStart = addMinutes(base, slotIdx * SLOT_MINUTES);
+    const durMin = differenceInMinutes(
+      parseISO(activeReservation.endTime),
+      parseISO(activeReservation.startTime)
+    );
+    let newEnd = addMinutes(newStart, durMin);
+    const maxEnd = setMinutes(setHours(startOfDay(day), DAY_END_HOUR), 0);
+    if (newEnd > maxEnd) newEnd = maxEnd;
+
+    const wouldOverlap = computeIfOverlap({
+      reservationId: activeReservation.id,
+      instrumentId: meta.instrumentId,
+      startTimeISO: newStart.toISOString(),
+      endTimeISO: newEnd.toISOString(),
+    });
+    setPreview({
+      instrumentId: meta.instrumentId,
+      day,
+      slotIdx,
+      wouldOverlap,
+      durationSlots: Math.max(1, Math.round(durMin / SLOT_MINUTES)),
+    });
   }
 
   function handleDragEnd(e: DragEndEvent) {
     const resId = String(e.active.id);
     const reservation = allReservations.find((r) => r.id === resId);
-    setActiveId(null);
-    const target = preview;
-    setPreview(null);
-    if (!reservation || !target) return;
-    const durMin = differenceInMinutes(parseISO(reservation.endTime), parseISO(reservation.startTime));
-    const base = setMinutes(setHours(startOfDay(target.day), DAY_START_HOUR), 0);
-    const newStart = addMinutes(base, target.slotIdx * SLOT_MINUTES);
-    const newEnd = addMinutes(newStart, durMin);
-    moveReservation(resId, target.instrumentId, newStart.toISOString(), newEnd.toISOString());
-  }
+    const over = e.over;
 
-  function renderSlotRows() {
-    const rows = [];
-    for (let h = DAY_START_HOUR; h < DAY_END_HOUR; h++) {
-      for (let half = 0; half < 2; half++) {
-        const isHour = half === 0;
-        const label = isHour ? `${String(h).padStart(2, '0')}:00` : '';
-        rows.push(
-          <div
-            key={`${h}-${half}`}
-            className={`border-b border-base-100 ${isHour ? 'border-base-200' : ''}`}
-            style={{ height: `${100 / totalSlots}%` }}
-          >
-            {label && (
-              <div className="text-[10px] text-base-500 text-right pr-2 pt-0.5">{label}</div>
-            )}
-          </div>
-        );
-      }
+    setActiveId(null);
+    setActiveReservation(null);
+    const lastPreview = preview;
+    setPreview(null);
+
+    if (!reservation) return;
+    if (!over) {
+      toast('已取消拖放', 'info', 1400);
+      return;
     }
-    return rows;
+    const meta = decodeDroppableId(String(over.id));
+    if (!meta) {
+      toast('无效的拖放目标', 'warning');
+      return;
+    }
+
+    const clientY =
+      (e.activatorEvent as PointerEvent | undefined)?.clientY ?? 0;
+    const slotIdx = lastPreview
+      ? lastPreview.slotIdx
+      : computeSlotIdxByClientY(String(over.id), clientY);
+
+    const day = parseISO(`${meta.dayDate}T00:00:00`);
+    const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
+    const newStart = addMinutes(base, slotIdx * SLOT_MINUTES);
+    const durMin = differenceInMinutes(
+      parseISO(reservation.endTime),
+      parseISO(reservation.startTime)
+    );
+    const newEnd = addMinutes(newStart, durMin);
+
+    const instName =
+      instruments.find((i) => i.id === meta.instrumentId)?.name ??
+      meta.instrumentId;
+    const dateStr = formatDateOnlyISO(day);
+    const startStr = `${String(newStart.getHours()).padStart(2, '0')}:${String(
+      newStart.getMinutes()
+    ).padStart(2, '0')}`;
+    const endStr = `${String(newEnd.getHours()).padStart(2, '0')}:${String(
+      newEnd.getMinutes()
+    ).padStart(2, '0')}`;
+
+    const result = moveReservation(
+      resId,
+      meta.instrumentId,
+      newStart.toISOString(),
+      newEnd.toISOString()
+    );
+
+    if (result.success) {
+      const crossInst = reservation.instrumentId !== meta.instrumentId;
+      const crossDay = !isSameDay(parseISO(reservation.startTime), day);
+      toast(
+        `已调度：${instName} ${dateStr} ${startStr}-${endStr}${
+          crossInst ? '（跨仪器）' : ''
+        }${crossDay ? '（跨日期）' : ''}`,
+        'success',
+        2400
+      );
+    } else if (result.overlapped) {
+      toast(
+        `时段冲突：${instName} ${dateStr} ${startStr}-${endStr} 已被占用，拦截落位`,
+        'error',
+        3200
+      );
+    } else {
+      toast('调度失败，请重试', 'error');
+    }
   }
 
   function renderCell(inst: Instrument, day: Date) {
+    const dateKey = formatDateOnlyISO(day);
+    const dropId = `drop__${inst.id}__${dateKey}`;
     const cellInstOverlaps = overlapsByInst.get(inst.id) ?? [];
     const cellReservations = allReservations.filter(
       (r) => r.instrumentId === inst.id && isSameDay(parseISO(r.startTime), day)
     );
-    const isActiveCell =
-      preview && preview.instrumentId === inst.id && isSameDay(preview.day, day);
+    const activeDrop =
+      preview?.instrumentId === inst.id &&
+      formatDateOnlyISO(preview.day) === dateKey;
+    const showPreviewHere = activeDrop;
+    const isOverlap = showPreviewHere && preview!.wouldOverlap;
+
     return (
-      <div
-        key={`${inst.id}-${day.toISOString()}`}
-        data-cal-cell="true"
-        data-instrument-id={inst.id}
-        data-day-date={day.toISOString()}
-        className={`relative border-l border-base-200 first:border-l-0 min-h-0 ${
-          isActiveCell ? 'bg-mint-50/40' : 'bg-white'
+      <DroppableCell
+        key={dropId}
+        instrumentId={inst.id}
+        dayDate={dateKey}
+        totalSlots={TOTAL_SLOTS}
+        onSlotIndexChange={(idx) => {
+          slotReports.current.set(dropId, { slotIdx: idx });
+        }}
+        registerHandle={(h) => {
+          if (h) cellHandles.current.set(dropId, h);
+          else cellHandles.current.delete(dropId);
+        }}
+        activeDrop={activeDrop}
+        className={`relative border-l border-base-200 first:border-l-0 min-h-0 overflow-hidden ${
+          showPreviewHere ? (isOverlap ? 'bg-red-50/60' : 'bg-mint-50/40') : 'bg-white'
         }`}
         style={{ flex: '1 1 0', minWidth: '140px' }}
       >
-        {Array.from({ length: totalSlots }, (_, i) => {
+        {Array.from({ length: TOTAL_SLOTS }, (_, i) => {
           const isHour = i % 2 === 0;
           return (
             <div
               key={i}
               className={`border-b ${isHour ? 'border-base-100' : 'border-base-50'}`}
-              style={{ height: `${100 / totalSlots}%` }}
+              style={{ height: `${100 / TOTAL_SLOTS}%` }}
             />
           );
         })}
 
-        {isActiveCell && preview && (
+        {showPreviewHere && (
           <div
-            className="absolute left-1 right-1 border-2 border-dashed border-mint-500 bg-mint-100/40 rounded-lg pointer-events-none z-10"
+            className={`absolute left-1 right-1 border-2 border-dashed rounded-lg pointer-events-none z-10 ${
+              isOverlap
+                ? 'border-red-500 bg-red-100/60'
+                : 'border-mint-500 bg-mint-100/50'
+            }`}
             style={{
-              top: `${(preview.slotIdx / totalSlots) * 100}%`,
-              height: `${(2 / totalSlots) * 100}%`,
+              top: `${(preview!.slotIdx / TOTAL_SLOTS) * 100}%`,
+              height: `${preview!.durationSlots / TOTAL_SLOTS * 100}%`,
             }}
-          />
+          >
+            {isOverlap && (
+              <span className="absolute -top-2 left-1 text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded shadow z-20">
+                ⚠ 重叠
+              </span>
+            )}
+          </div>
         )}
 
         {cellReservations.map((r) => {
@@ -176,10 +318,18 @@ export function CalendarView() {
             setHours(startOfDay(day), DAY_START_HOUR),
             0
           ).getTime();
-          const offsetMin = (parseISO(r.startTime).getTime() - colBaseMin) / 60000;
-          const durMin = differenceInMinutes(parseISO(r.endTime), parseISO(r.startTime));
-          const top = Math.max(0, (offsetMin / (totalSlots * SLOT_MINUTES)) * 100);
-          const height = (durMin / (totalSlots * SLOT_MINUTES)) * 100;
+          const offsetMin =
+            (parseISO(r.startTime).getTime() - colBaseMin) / 60000;
+          const durMin = differenceInMinutes(
+            parseISO(r.endTime),
+            parseISO(r.startTime)
+          );
+          const top = Math.max(
+            0,
+            (offsetMin / (TOTAL_SLOTS * SLOT_MINUTES)) * 100
+          );
+          const height = (durMin / (TOTAL_SLOTS * SLOT_MINUTES)) * 100;
+          const isOver = cellInstOverlaps.includes(r.id);
           return (
             <div
               key={r.id}
@@ -192,26 +342,27 @@ export function CalendarView() {
             >
               <ReservationCard
                 reservation={r}
-                isOverlapping={cellInstOverlaps.includes(r.id)}
-                compact={height < 0.08}
+                isOverlapping={isOver}
+                compact={height < 0.1}
                 onClick={() => openDrawer(r.id)}
               />
             </div>
           );
         })}
-      </div>
+      </DroppableCell>
     );
   }
 
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={() => {
         setActiveId(null);
+        setActiveReservation(null);
         setPreview(null);
       }}
     >
@@ -236,10 +387,18 @@ export function CalendarView() {
                     }`}
                     style={{ minWidth: '140px' }}
                   >
-                    <p className={`text-xs font-semibold ${isToday(day) ? 'text-mint-700' : 'text-base-700'}`}>
+                    <p
+                      className={`text-xs font-semibold ${
+                        isToday(day) ? 'text-mint-700' : 'text-base-700'
+                      }`}
+                    >
                       {formatWeekday(day)}
                     </p>
-                    <p className={`text-sm font-bold ${isToday(day) ? 'text-mint-600' : 'text-base-800'}`}>
+                    <p
+                      className={`text-sm font-bold ${
+                        isToday(day) ? 'text-mint-600' : 'text-base-800'
+                      }`}
+                    >
                       {formatShortDate(day)}
                       {isToday(day) && (
                         <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-mint-500 align-middle" />
@@ -251,39 +410,49 @@ export function CalendarView() {
             </div>
 
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-              {selectedInstruments.map((inst) => (
-                <div
-                  key={inst.id}
-                  className="flex border-b border-base-200 last:border-b-0 min-h-0"
-                  style={{ flex: '1 1 0', minHeight: '220px' }}
-                >
-                  <div className="w-28 shrink-0 border-r border-base-200 bg-gradient-to-b from-sage-50 to-mint-50 p-2 flex flex-col">
-                    <p className="text-xs font-semibold text-base-800 leading-snug line-clamp-3">
-                      {inst.name}
-                    </p>
-                    <p className="text-[10px] text-base-500 mt-1">{inst.model}</p>
-                    <p className="text-[10px] text-base-400 mt-auto">{inst.location}</p>
+              {selectedInstruments.map((inst) => {
+                const cellInstOverlaps = overlapsByInst.get(inst.id) ?? [];
+                return (
+                  <div
+                    key={inst.id}
+                    className="flex border-b border-base-200 last:border-b-0 min-h-0"
+                    style={{ flex: '1 1 0', minHeight: '220px' }}
+                  >
+                    <div className="w-28 shrink-0 border-r border-base-200 bg-gradient-to-b from-sage-50 to-mint-50 p-2 flex flex-col">
+                      <p className="text-xs font-semibold text-base-800 leading-snug line-clamp-3">
+                        {inst.name}
+                      </p>
+                      <p className="text-[10px] text-base-500 mt-1">
+                        {inst.model}
+                      </p>
+                      {cellInstOverlaps.length > 0 && (
+                        <p className="text-[10px] text-red-600 mt-1 bg-red-50 border border-red-200 px-1 py-0.5 rounded text-center">
+                          ⚠ {cellInstOverlaps.length} 重叠
+                        </p>
+                      )}
+                      <p className="text-[10px] text-base-400 mt-auto">
+                        {inst.location}
+                      </p>
+                    </div>
+                    <div className="flex-1 flex min-w-0 relative overflow-x-auto scrollbar-thin">
+                      {weekDates.map((day) => renderCell(inst, day))}
+                    </div>
                   </div>
-                  <div className="flex-1 flex min-w-0 relative overflow-x-auto scrollbar-thin">
-                    {weekDates.map((day) => renderCell(inst, day))}
-                  </div>
-                </div>
-              ))}
-
-              <div className="absolute left-0 top-12 pointer-events-none w-28">
-                {/* placeholder */}
-              </div>
+                );
+              })}
             </div>
-
-            <div className="hidden">{renderSlotRows()}</div>
           </div>
         )}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.18,0.67,0.6,1.22)' }}>
         {activeReservation && (
-          <div style={{ width: '220px', opacity: 0.95 }}>
-            <ReservationCard reservation={activeReservation} disableDrag />
+          <div style={{ width: '220px' }}>
+            <ReservationCard
+              reservation={activeReservation}
+              isOverlapping={preview?.wouldOverlap ?? false}
+              disableDrag
+            />
           </div>
         )}
       </DragOverlay>

@@ -2,11 +2,14 @@ import { useEffect, useState } from 'react';
 import { useScheduleStore } from '../store/scheduleStore';
 import type { Instrument, Reservation } from '../types';
 
+const MOCK_VERSION = 2;
+const VERSION_KEY = 'lab-scheduler-mock-version';
+const DEMO_RESERVATION_IDS = ['res-017', 'res-018'];
+
 export function useMockDataLoader() {
   const setInstruments = useScheduleStore((s) => s.setInstruments);
   const setReservations = useScheduleStore((s) => s.setReservations);
   const reservations = useScheduleStore((s) => s.reservations);
-  const instruments = useScheduleStore((s) => s.instruments);
   const isHydrated = useScheduleStore((s) => s.isHydrated);
 
   const [loading, setLoading] = useState(true);
@@ -29,8 +32,27 @@ export function useMockDataLoader() {
 
         setInstruments(instList);
 
-        if (reservations.length === 0) {
-          setReservations(resvList);
+        const storedVersion = Number(localStorage.getItem(VERSION_KEY) || 0);
+        const demoReservations = resvList.filter((r) =>
+          DEMO_RESERVATION_IDS.includes(r.id)
+        );
+
+        if (reservations.length === 0 || storedVersion < MOCK_VERSION) {
+          const existing =
+            reservations.length > 0
+              ? reservations.filter(
+                  (r) => !DEMO_RESERVATION_IDS.includes(r.id)
+                )
+              : resvList.filter((r) => !DEMO_RESERVATION_IDS.includes(r.id));
+          setReservations([...existing, ...demoReservations]);
+          localStorage.setItem(VERSION_KEY, String(MOCK_VERSION));
+        } else {
+          const missing = demoReservations.filter(
+            (d) => !reservations.find((r) => r.id === d.id)
+          );
+          if (missing.length > 0) {
+            setReservations([...reservations, ...missing]);
+          }
         }
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
@@ -45,5 +67,5 @@ export function useMockDataLoader() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isHydrated]);
 
-  return { loading, error, instruments, reservations };
+  return { loading, error, reservations };
 }

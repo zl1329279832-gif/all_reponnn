@@ -51,11 +51,6 @@ func (s *Service) IngestPrometheus(body []byte) ([]*model.Alert, error) {
 
 		fingerprint := model.ComputeFingerprint(labels)
 
-		onCallGroup, err := s.store.MatchPolicy(service, env, severity)
-		if err != nil {
-			return nil, fmt.Errorf("match policy: %w", err)
-		}
-
 		alert := &model.Alert{
 			Fingerprint: fingerprint,
 			Severity:    severity,
@@ -68,7 +63,6 @@ func (s *Service) IngestPrometheus(body []byte) ([]*model.Alert, error) {
 			Source:      "prometheus",
 			RawPayload:  rawBody,
 			StartsAt:    pa.StartsAt,
-			OnCallGroup: onCallGroup,
 		}
 
 		merged, err := s.store.UpsertAlert(alert, s.dedupeWindow)
@@ -126,11 +120,6 @@ func (s *Service) IngestCustom(body []byte) (*model.Alert, error) {
 
 	fingerprint := model.ComputeFingerprint(labels)
 
-	onCallGroup, err := s.store.MatchPolicy(custom.Service, custom.Env, custom.Severity)
-	if err != nil {
-		return nil, fmt.Errorf("match policy: %w", err)
-	}
-
 	startsAt := custom.Timestamp
 	if startsAt.IsZero() {
 		startsAt = time.Now()
@@ -148,7 +137,6 @@ func (s *Service) IngestCustom(body []byte) (*model.Alert, error) {
 		Source:      "custom",
 		RawPayload:  string(body),
 		StartsAt:    startsAt,
-		OnCallGroup: onCallGroup,
 	}
 
 	merged, err := s.store.UpsertAlert(alert, s.dedupeWindow)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"alert-aggregator/internal/model"
@@ -61,13 +62,13 @@ func (s *Store) init() error {
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`)
 	if err != nil {
-		return err
+		return fmt.Errorf("create schema_version: %w", err)
 	}
 
 	var version int
 	err = s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version)
 	if err != nil {
-		return err
+		return fmt.Errorf("query schema_version: %w", err)
 	}
 
 	if version >= 1 {
@@ -76,7 +77,7 @@ func (s *Store) migrate() error {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -91,7 +92,7 @@ func (s *Store) migrate() error {
 		updated_at DATETIME
 	)`)
 	if err != nil {
-		return err
+		return fmt.Errorf("create policies: %w", err)
 	}
 
 	_, err = tx.Exec(`CREATE TABLE IF NOT EXISTS audit_logs (
@@ -105,70 +106,24 @@ func (s *Store) migrate() error {
 		details TEXT
 	)`)
 	if err != nil {
-		return err
+		return fmt.Errorf("create audit_logs: %w", err)
 	}
 
-	var alertsExists bool
-	tx.QueryRow(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&alertsExists)
+	var alertsExists int
+	err = tx.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&alertsExists)
+	if err != nil {
+		return fmt.Errorf("check alerts exists: %w", err)
+	}
 
-	if alertsExists {
-		var sqlText string
-		err = tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&sqlText)
+	if alertsExists > 0 {
+		needRebuild, err := s.alertsHasUniqueConstraint(tx)
 		if err != nil {
-			return err
+			return fmt.Errorf("check unique constraint: %w", err)
 		}
 
-		hasUniqueConstraint := false
-		for i := 0; i <= len(sqlText)-len("UNIQUE"); i++ {
-			if sqlText[i:i+len("UNIQUE")] == "UNIQUE" {
-				hasUniqueConstraint = true
-				break
-			}
-		}
-
-		if hasUniqueConstraint {
-			_, err = tx.Exec(`
-				CREATE TABLE alerts_new (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					fingerprint TEXT NOT NULL,
-					severity TEXT NOT NULL,
-					service TEXT,
-					env TEXT,
-					summary TEXT,
-					description TEXT,
-					labels TEXT,
-					annotations TEXT,
-					dedupe_count INTEGER DEFAULT 1,
-					source TEXT,
-					raw_payload TEXT,
-					starts_at DATETIME,
-					updated_at DATETIME,
-					on_call_group TEXT
-				)
-			`)
-			if err != nil {
-				return fmt.Errorf("create alerts_new: %w", err)
-			}
-
-			_, err = tx.Exec(`
-				INSERT INTO alerts_new 
-				SELECT id, fingerprint, severity, service, env, summary, description, 
-				       labels, annotations, dedupe_count, source, raw_payload, 
-				       starts_at, updated_at, on_call_group 
-				FROM alerts
-			`)
-			if err != nil {
-				return fmt.Errorf("copy alerts data: %w", err)
-			}
-
-			_, err = tx.Exec(`DROP TABLE alerts`)
-			if err != nil {
-				return fmt.Errorf("drop old alerts: %w", err)
-			}
-
-			_, err = tx.Exec(`ALTER TABLE alerts_new RENAME TO alerts`)
-			if err != nil {
-				return fmt.Errorf("rename alerts_new: %w", err)
+		if needRebuild {
+			if err := s.rebuildAlertsTable(tx); err != nil {
+				return fmt.Errorf("rebuild alerts: %w", err)
 			}
 		}
 	} else {
@@ -192,16 +147,155 @@ func (s *Store) migrate() error {
 			)
 		`)
 		if err != nil {
-			return err
+			return fmt.Errorf("create alerts: %w", err)
 		}
 	}
 
 	_, err = tx.Exec(`INSERT INTO schema_version (version) VALUES (1)`)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert schema_version: %w", err)
 	}
 
 	return tx.Commit()
+}
+
+func (s *Store) alertsHasUniqueConstraint(tx *sql.Tx) (bool, error) {
+	rows, err := tx.Query(`PRAGMA table_info(alerts)`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	type columnInfo struct {
+		cid       int
+		name      string
+		colType   string
+		notnull   int
+		dfltValue *string
+		pk        int
+	}
+
+	for rows.Next() {
+		var ci columnInfo
+		err := rows.Scan(&ci.cid, &ci.name, &ci.colType, &ci.notnull, &ci.dfltValue, &ci.pk)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	idxRows, err := tx.Query(`PRAGMA index_list(alerts)`)
+	if err != nil {
+		return false, err
+	}
+	defer idxRows.Close()
+
+	type indexInfo struct {
+		seq     int
+		name    string
+		unique  int
+		origin  string
+		partial int
+	}
+
+	for idxRows.Next() {
+		var ii indexInfo
+		err := idxRows.Scan(&ii.seq, &ii.name, &ii.unique, &ii.origin, &ii.partial)
+		if err != nil {
+			return false, err
+		}
+		if ii.unique == 1 {
+			quoted := strings.ReplaceAll(ii.name, "'", "''")
+			colRows, err := tx.Query(fmt.Sprintf(`PRAGMA index_info('%s')`, quoted))
+			if err != nil {
+				return false, err
+			}
+			for colRows.Next() {
+				var seqno, cid int
+				var cname string
+				if err := colRows.Scan(&seqno, &cid, &cname); err != nil {
+					colRows.Close()
+					return false, err
+				}
+				if cname == "fingerprint" {
+					colRows.Close()
+					return true, nil
+				}
+			}
+			colRows.Close()
+		}
+	}
+
+	if err := idxRows.Err(); err != nil {
+		return false, err
+	}
+
+	var sqlText string
+	err = tx.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='alerts'`).Scan(&sqlText)
+	if err != nil {
+		return false, err
+	}
+
+	if len(sqlText) >= len("UNIQUE") {
+		for i := 0; i <= len(sqlText)-len("UNIQUE"); i++ {
+			if sqlText[i:i+len("UNIQUE")] == "UNIQUE" {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
+func (s *Store) rebuildAlertsTable(tx *sql.Tx) error {
+	_, err := tx.Exec(`
+		CREATE TABLE alerts_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			fingerprint TEXT NOT NULL,
+			severity TEXT NOT NULL,
+			service TEXT,
+			env TEXT,
+			summary TEXT,
+			description TEXT,
+			labels TEXT,
+			annotations TEXT,
+			dedupe_count INTEGER DEFAULT 1,
+			source TEXT,
+			raw_payload TEXT,
+			starts_at DATETIME,
+			updated_at DATETIME,
+			on_call_group TEXT
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("create alerts_new: %w", err)
+	}
+
+	_, err = tx.Exec(`
+		INSERT INTO alerts_new 
+		SELECT id, fingerprint, severity, service, env, summary, description, 
+		       labels, annotations, dedupe_count, source, raw_payload, 
+		       starts_at, updated_at, on_call_group 
+		FROM alerts
+	`)
+	if err != nil {
+		return fmt.Errorf("copy alerts data: %w", err)
+	}
+
+	_, err = tx.Exec(`DROP TABLE alerts`)
+	if err != nil {
+		return fmt.Errorf("drop old alerts: %w", err)
+	}
+
+	_, err = tx.Exec(`ALTER TABLE alerts_new RENAME TO alerts`)
+	if err != nil {
+		return fmt.Errorf("rename alerts_new: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Store) Close() error {

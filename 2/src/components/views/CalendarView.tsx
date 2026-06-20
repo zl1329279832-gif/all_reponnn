@@ -75,7 +75,11 @@ export function CalendarView() {
   >(new Map());
   const cellHandles = useRef<Map<string, DroppableCellHandle>>(new Map());
   const globalPointerY = useRef<number>(0);
+  const globalPointerX = useRef<number>(0);
   const pointerUnbind = useRef<(() => void) | null>(null);
+  const currentOverId = useRef<string | null>(null);
+  const previewRef = useRef<DropTargetWithDuration | null>(null);
+  const activeReservationRef = useRef<Reservation | null>(null);
 
   const pointerSensor = useSensor(PointerSensor, {
     activationConstraint: { distance: 5 },
@@ -98,16 +102,16 @@ export function CalendarView() {
 
   const computeSlotIdx = useCallback(
     (droppableId: string, clientY: number): number => {
-      const last = slotReports.current.get(droppableId);
-      if (last) return last.slotIdx;
       const handle = cellHandles.current.get(droppableId);
       if (handle) return handle.computeSlotIndex(clientY, TOTAL_SLOTS);
+      const last = slotReports.current.get(droppableId);
+      if (last) return last.slotIdx;
       return 0;
     },
     []
   );
 
-  const computeIfOverlap = useCallback(
+  const computeIfOverlapByRef = useCallback(
     (params: {
       reservationId: string;
       instrumentId: string;
@@ -127,9 +131,48 @@ export function CalendarView() {
     [allReservations]
   );
 
+  const updatePreviewForDrop = useCallback((droppableId: string, clientY: number) => {
+    const r = activeReservationRef.current;
+    if (!r) return;
+    const meta = decodeDroppableId(droppableId);
+    if (!meta) return;
+
+    const slotIdx = computeSlotIdx(droppableId, clientY);
+    const day = parseISO(`${meta.dayDate}T00:00:00`);
+    const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
+    const newStart = addMinutes(base, slotIdx * SLOT_MINUTES);
+    const durMin = differenceInMinutes(
+      parseISO(r.endTime),
+      parseISO(r.startTime)
+    );
+    let newEnd = addMinutes(newStart, durMin);
+    const maxEnd = setMinutes(setHours(startOfDay(day), DAY_END_HOUR), 0);
+    if (newEnd > maxEnd) newEnd = maxEnd;
+
+    const wouldOverlap = computeIfOverlapByRef({
+      reservationId: r.id,
+      instrumentId: meta.instrumentId,
+      startTimeISO: newStart.toISOString(),
+      endTimeISO: newEnd.toISOString(),
+    });
+    const next: DropTargetWithDuration = {
+      instrumentId: meta.instrumentId,
+      day,
+      slotIdx,
+      wouldOverlap,
+      durationSlots: Math.max(1, Math.round(durMin / SLOT_MINUTES)),
+    };
+    previewRef.current = next;
+    setPreview(next);
+  }, [computeSlotIdx, computeIfOverlapByRef]);
+
   function installGlobalPointerListener() {
     const onMove = (e: PointerEvent) => {
       globalPointerY.current = e.clientY;
+      globalPointerX.current = e.clientX;
+      if (currentOverId.current && activeReservationRef.current) {
+        updatePreviewForDrop(currentOverId.current, e.clientY);
+      }
     };
     window.addEventListener('pointermove', onMove, true);
     pointerUnbind.current = () => {
@@ -146,52 +189,41 @@ export function CalendarView() {
     const id = String(e.active.id);
     const r = allReservations.find((x) => x.id === id);
     slotReports.current.clear();
+    currentOverId.current = null;
+    previewRef.current = null;
+    activeReservationRef.current = r ?? null;
     const pev = e.activatorEvent as PointerEvent | undefined;
     globalPointerY.current = pev?.clientY ?? 0;
+    globalPointerX.current = pev?.clientX ?? 0;
     installGlobalPointerListener();
     setActiveId(id);
     setActiveReservation(r ?? null);
   }
 
   function handleDragOver(e: DragOverEvent) {
-    if (!activeReservation) return;
+    if (!activeReservationRef.current) return;
     const over = e.over;
     if (!over) {
+      currentOverId.current = null;
+      previewRef.current = null;
       setPreview(null);
       return;
     }
-    const meta = decodeDroppableId(String(over.id));
+    const dropId = String(over.id);
+    const meta = decodeDroppableId(dropId);
     if (!meta) return;
 
-    const slotIdx = computeSlotIdx(String(over.id), globalPointerY.current);
-    const day = parseISO(`${meta.dayDate}T00:00:00`);
-    const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);
-    const newStart = addMinutes(base, slotIdx * SLOT_MINUTES);
-    const durMin = differenceInMinutes(
-      parseISO(activeReservation.endTime),
-      parseISO(activeReservation.startTime)
-    );
-    let newEnd = addMinutes(newStart, durMin);
-    const maxEnd = setMinutes(setHours(startOfDay(day), DAY_END_HOUR), 0);
-    if (newEnd > maxEnd) newEnd = maxEnd;
-
-    const wouldOverlap = computeIfOverlap({
-      reservationId: activeReservation.id,
-      instrumentId: meta.instrumentId,
-      startTimeISO: newStart.toISOString(),
-      endTimeISO: newEnd.toISOString(),
-    });
-    setPreview({
-      instrumentId: meta.instrumentId,
-      day,
-      slotIdx,
-      wouldOverlap,
-      durationSlots: Math.max(1, Math.round(durMin / SLOT_MINUTES)),
-    });
+    currentOverId.current = dropId;
+    updatePreviewForDrop(dropId, globalPointerY.current);
   }
 
   function handleDragEnd(e: DragEndEvent) {
+    const finalY = globalPointerY.current;
+    const finalOverId = currentOverId.current;
     uninstallGlobalPointerListener();
+    currentOverId.current = null;
+    previewRef.current = null;
+    activeReservationRef.current = null;
 
     const resId = String(e.active.id);
     const reservation = allReservations.find((r) => r.id === resId);
@@ -199,23 +231,20 @@ export function CalendarView() {
 
     setActiveId(null);
     setActiveReservation(null);
-    const lastPreview = preview;
     setPreview(null);
 
     if (!reservation) return;
-    if (!over) {
+    if (!over || !finalOverId) {
       toast('已取消拖放', 'info', 1400);
       return;
     }
-    const meta = decodeDroppableId(String(over.id));
+    const meta = decodeDroppableId(finalOverId);
     if (!meta) {
       toast('无效的拖放目标', 'warning');
       return;
     }
 
-    const slotIdx = lastPreview
-      ? lastPreview.slotIdx
-      : computeSlotIdx(String(over.id), globalPointerY.current);
+    const slotIdx = computeSlotIdx(finalOverId, finalY);
 
     const day = parseISO(`${meta.dayDate}T00:00:00`);
     const base = setMinutes(setHours(startOfDay(day), DAY_START_HOUR), 0);

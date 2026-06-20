@@ -102,7 +102,8 @@ export class InputManager {
       return { lane: pickedLane };
     }
 
-    const vehicleHits = raycaster.intersectObject(this.vehicles.instancedMesh, false);
+    const vehicleMesh = this.vehicles.instancedMesh;
+    const vehicleHits = raycaster.intersectObject(vehicleMesh, false);
     let instId = -1;
     if (vehicleHits.length && vehicleHits[0].instanceId !== undefined) {
       instId = vehicleHits[0].instanceId;

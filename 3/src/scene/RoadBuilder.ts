@@ -105,8 +105,8 @@ export class RoadBuilder {
 
       const dx = d.ex - d.sx;
       const dz = d.ez - d.sz;
-      const len = Math.hypot(dx, dz) + 4;
-      const laneGeo = new THREE.BoxGeometry(laneWidth * 0.95, 10, len);
+      const len = Math.hypot(dx, dz) + 12;
+      const laneGeo = new THREE.BoxGeometry(laneWidth * 1.15, 20, len);
       const laneMat = laneMatBase.clone();
       (laneMat as THREE.MeshStandardMaterial).opacity = 0.0;
       (laneMat as THREE.MeshStandardMaterial).depthWrite = false;

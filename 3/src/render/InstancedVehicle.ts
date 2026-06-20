@@ -57,12 +57,16 @@ export class InstancedVehicleRenderer {
     this.instancedMesh.castShadow = true;
     this.instancedMesh.receiveShadow = true;
     this.instancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.instancedMesh.frustumCulled = true;
     if (!this.instancedMesh.instanceColor) {
       this.instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(
         new Float32Array(capacity * 3), 3
       );
     }
     this.instancedMesh.count = 0;
+    this.instancedMesh.boundingBox = null;
+    this.instancedMesh.boundingSphere = null;
+    this.instancedMesh.frustumCulled = false;
 
     this.particleGeometry = new THREE.BufferGeometry();
     this.particleGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(capacity * 3), 3));
@@ -192,6 +196,8 @@ export class InstancedVehicleRenderer {
     merged.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
     merged.setIndex(allIndices);
     merged.computeVertexNormals();
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
     matrices;
     return merged;
   }
@@ -280,6 +286,8 @@ export class InstancedVehicleRenderer {
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
     this.particleGeometry.setDrawRange(0, count);
+    this.instancedMesh.boundingBox = null;
+    this.instancedMesh.boundingSphere = null;
   }
 
   dispose(): void {

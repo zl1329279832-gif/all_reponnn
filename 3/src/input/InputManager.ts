@@ -26,9 +26,6 @@ export class InputManager {
   private _hoveredLane: LaneId | null = null;
   private _hoveredInstanceId: number = -1;
 
-  get hoveredLane(): LaneId | 'none' { return this._hoveredLane ?? 'none'; }
-  get hoveredInstanceId(): number { return this._hoveredInstanceId; }
-
   paused = false;
 
   constructor(
@@ -165,33 +162,37 @@ export class InputManager {
 
   flyCameraToLane(laneId: LaneId): void {
     const dir = laneId[0] as Direction;
-    const turn = laneId[2] as TurnKind;
-    void turn;
-    const { laneWidth, lanesPerDirection, roadLength } = this.config.intersection;
-    const half = laneWidth * lanesPerDirection;
-    void half;
+    const { roadLength } = this.config.intersection;
 
-    const offsets: Record<Direction, [number, number]> = {
-      N: [0, -1],
-      S: [0, 1],
-      E: [1, 0],
-      W: [-1, 0]
+    const camDist = roadLength * 0.7;
+    const height = 38;
+
+    const camPosByDir: Record<Direction, THREE.Vector3> = {
+      N: new THREE.Vector3(0, height, camDist),
+      S: new THREE.Vector3(0, height, -camDist),
+      E: new THREE.Vector3(-camDist, height, 0),
+      W: new THREE.Vector3(camDist, height, 0)
     };
-    const [sx, sz] = offsets[dir];
-    const camDist = roadLength * 0.45 + 20;
-    const height = 42;
+
+    const lookAtByDir: Record<Direction, THREE.Vector3> = {
+      N: new THREE.Vector3(0, 0, -8),
+      S: new THREE.Vector3(0, 0, 8),
+      E: new THREE.Vector3(8, 0, 0),
+      W: new THREE.Vector3(-8, 0, 0)
+    };
+
     const fromPos = this.sceneMgr.camera.position.clone();
     const fromTarget = this.sceneMgr.controls.target.clone();
-    const toPos = new THREE.Vector3(-sx * camDist * 0.85 + sz * camDist * 0.15, height, -sz * camDist * 0.85 + sx * camDist * 0.15);
-    const toTarget = new THREE.Vector3(sx * 6, 0, sz * 6);
+    const toPos = camPosByDir[dir];
+    const toTarget = lookAtByDir[dir];
 
     this._tweens.forEach(t => t.cancel());
     this._tweens = [];
 
-    this._tweens.push(tweenVec3(fromPos, toPos, 850, v => {
+    this._tweens.push(tweenVec3(fromPos, toPos, 1.2, v => {
       this.sceneMgr.camera.position.copy(v);
     }));
-    this._tweens.push(tweenVec3(fromTarget, toTarget, 850, v => {
+    this._tweens.push(tweenVec3(fromTarget, toTarget, 1.2, v => {
       this.sceneMgr.controls.target.copy(v);
     }));
   }

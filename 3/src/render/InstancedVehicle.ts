@@ -15,7 +15,7 @@ export class InstancedVehicleRenderer {
 
   private readonly _dummy = new THREE.Object3D();
   private readonly _color = new THREE.Color();
-  private readonly _highlightColor = new THREE.Color(0x60a5fa);
+  private readonly _highlightColor = new THREE.Color(0x22d3ee);
 
   private _capacity: number;
   private _renderMode: RenderMode = 'solid';
@@ -255,7 +255,7 @@ export class InstancedVehicleRenderer {
       }
 
       if (i === this._hoverInstanceId) {
-        const k = 0.55;
+        const k = 0.85;
         r = r * (1 - k) + this._highlightColor.r * k;
         g = g * (1 - k) + this._highlightColor.g * k;
         b = b * (1 - k) + this._highlightColor.b * k;

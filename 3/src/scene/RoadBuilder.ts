@@ -392,8 +392,10 @@ export class RoadBuilder {
     const mesh = this.laneMeshes.get(laneId);
     if (!mesh) return;
     const mat = mesh.material as THREE.MeshStandardMaterial;
-    mat.opacity = highlight ? 0.35 : 0.0;
-    mat.color.set(highlight ? 0x60a5fa : 0x32343a);
+    mat.opacity = highlight ? 0.65 : 0.0;
+    mat.color.set(highlight ? 0x22d3ee : 0x32343a);
+    mat.emissive.set(highlight ? 0x22d3ee : 0x000000);
+    mat.emissiveIntensity = highlight ? 0.6 : 0;
     mat.needsUpdate = true;
   }
 

@@ -204,14 +204,14 @@ export class App {
   }
 
   start(): void {
-    const loop = (t: number) => {
+    const loop = () => {
       this._rafId = requestAnimationFrame(loop);
       const now = performance.now();
       const dt = this._lastFrameTime === 0 ? 0.016 : Math.min(0.05, (now - this._lastFrameTime) / 1000);
       this._lastFrameTime = now;
       this._step(dt);
     };
-    this._rafId = requestAnimationFrame(loop);
+    loop();
   }
 
   private _step(dt: number): void {

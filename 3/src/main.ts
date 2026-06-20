@@ -5,7 +5,6 @@ async function main() {
   const app = new App(container);
   await app.init();
   app.start();
-  (window as any).__app = app;
 }
 
 main().catch(err => {

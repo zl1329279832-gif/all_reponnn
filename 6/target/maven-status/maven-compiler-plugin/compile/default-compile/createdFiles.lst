@@ -1,0 +1,8 @@
+com\chess\entity\Move$MoveBuilder.class
+com\chess\entity\Move.class
+com\chess\repository\MoveRepository.class
+com\chess\entity\Match$MatchStatus.class
+com\chess\service\MatchService.class
+com\chess\repository\MatchRepository.class
+com\chess\entity\Match$MatchBuilder.class
+com\chess\entity\Match.class

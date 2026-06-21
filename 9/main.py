@@ -6,8 +6,9 @@ from ui.main_window import MainWindow
 def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setApplicationName("小工作室客户跟进管理")
-    app.setOrganizationName("StudioCRM")
+    app.setApplicationName("番茄专注")
+    app.setOrganizationName("Pomodoro")
+    app.setQuitOnLastWindowClosed(False)
 
     window = MainWindow()
     window.show()

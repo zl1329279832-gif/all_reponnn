@@ -41,3 +41,48 @@ logs/
 # 测试临时输出
 gui_test_output.txt
 *.output.txt
+
+# ======================
+# 工程化 & 工具链产物
+# ======================
+
+# 打包分发
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+*.tar.gz
+
+# pytest
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+cov.xml
+coverage.xml
+*.cover
+
+# 类型检查
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff / black 等格式化工具缓存
+.ruff_cache/
+
+# tox / nox
+.tox/
+.nox/
+
+# hatch / poetry 工具
+.hatch/
+.poetry/
+
+# setuptools_scm 版本文件
+_version.py
+
+# 编辑器临时文件
+*.bak
+*.tmp
+*.swp

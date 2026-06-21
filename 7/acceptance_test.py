@@ -1,6 +1,10 @@
 """
-自动化验收测试脚本 - 模拟用户所有操作
+自动化验收测试脚本 - 模拟用户所有核心业务操作
 运行：python acceptance_test.py
+CI 模式：自动检测 CI 环境变量，无需图形界面，可在 Linux/Windows 流水线中直接跑
+
+注：本脚本只测核心逻辑（扫描/解析/备份/还原/对比算法），不启动 PyQt6 窗口。
+GUI 界面测试请运行 gui_integration_test.py（需要本地图形环境）。
 """
 
 import os
@@ -10,6 +14,24 @@ import tempfile
 import shutil
 import time
 from datetime import datetime
+
+
+def _detect_ci():
+    """检测是否在 CI 环境运行，返回环境名称或 None"""
+    ci_markers = ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL", "TF_BUILD"]
+    for m in ci_markers:
+        if os.environ.get(m, "").lower() in ("1", "true", "yes"):
+            return m
+    return None
+
+
+_is_ci = _detect_ci()
+if _is_ci:
+    print(f"[CI] 检测到 CI 环境: {_is_ci}，以无头模式运行核心逻辑测试")
+    # 保险起见，为后续可能加载的 Qt 设置 offscreen 平台
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    os.environ.setdefault("QT_QPA_OFFSCREEN_NO_GLX", "1")
+
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 

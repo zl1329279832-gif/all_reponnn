@@ -6,23 +6,27 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from PySide6.QtWidgets import QApplication
-from config.settings import SettingsManager
-from core.storage import Storage
+from PySide6.QtGui import QFont
+
+from core.storage import CustomerStorage
 from ui.main_window import MainWindow
 
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setApplicationName("Pomodoro")
-    app.setOrganizationName("PomodoroApp")
-    app.setQuitOnLastWindowClosed(False)
+    app.setApplicationName("客户跟进工具")
+    app.setOrganizationName("LocalCRM")
 
-    settings_manager = SettingsManager()
-    storage = Storage(settings_manager.get_db_path())
+    font = QFont()
+    font.setPointSize(10)
+    app.setFont(font)
 
-    window = MainWindow(settings_manager, storage)
+    data_dir = project_root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    storage = CustomerStorage(data_dir / "crm.db")
+
+    window = MainWindow(storage)
     window.show()
-
     return app.exec()
 
 

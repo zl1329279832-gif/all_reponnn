@@ -1,568 +1,442 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+from PySide6.QtCore import Qt, QDate
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QBrush, QPen, QColor, QAction, QKeySequence
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
-    QVBoxLayout,
     QHBoxLayout,
-    QPushButton,
-    QComboBox,
+    QVBoxLayout,
     QLabel,
-    QTabWidget,
+    QPushButton,
     QFrame,
+    QSplitter,
     QMessageBox,
+    QStatusBar,
+    QFileDialog,
+    QToolBar,
+    QSizePolicy,
     QApplication,
+    QMenu,
 )
-from PySide6.QtCore import Qt, QTimer, QEvent
-from PySide6.QtGui import QIcon, QPainter, QColor, QBrush, QPen, QPixmap, QCloseEvent
-from PySide6.QtWidgets import QSystemTrayIcon
 
-from core.timer import PomodoroTimer, TimerState, TimerEndReason, TimerSnapshot
-from core.storage import Storage, SessionStatus, SessionType
-from config.settings import SettingsManager, AppSettings
-from ui.circle_timer import CircleTimer
-from ui.system_tray import SystemTray
-from ui.history_page import HistoryPage
-from ui.settings_page import SettingsPage
-
-
-def _window_icon() -> QIcon:
-    pixmap = QPixmap(64, 64)
-    pixmap.fill(QColor(0, 0, 0, 0))
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing, True)
-    painter.setBrush(QBrush(QColor("#e74c3c")))
-    painter.setPen(QPen(QColor("#ffffff"), 3))
-    painter.drawEllipse(6, 6, 52, 52)
-    painter.setPen(QPen(QColor("#ffffff"), 4))
-    painter.drawLine(32, 16, 32, 34)
-    painter.drawLine(32, 34, 44, 34)
-    painter.end()
-    return QIcon(pixmap)
+from core.models import Customer, FollowUpRecord
+from core.storage import CustomerStorage
+from ui.widgets import FilterBar, CustomerListWidget, CustomerDetailWidget, TimelineWidget
+from ui.dialogs import (
+    CustomerEditDialog,
+    FollowUpDialog,
+    TodayFollowUpDialog,
+    CsvImportDialog,
+)
 
 
-def format_seconds(seconds: int) -> str:
-    m, s = divmod(max(0, seconds), 60)
-    return f"{m:02d}:{s:02d}"
-
-
-class FocusPage(QWidget):
-    def __init__(self, settings_manager: SettingsManager, storage: Storage, parent=None):
-        super().__init__(parent)
-        self._settings_manager = settings_manager
-        self._storage = storage
-        self._session_id: int | None = None
-        self._session_type: SessionType = SessionType.WORK
-        self._completed_work_count: int = 0
-
-        self._timer = PomodoroTimer(
-            self._settings_manager.get().work_minutes * 60
-        )
-        self._timer.on_tick(self._on_tick)
-        self._timer.on_completed(self._on_timer_completed)
-        self._timer.on_state_changed(self._on_state_changed)
-
-        self._qt_timer = QTimer(self)
-        self._qt_timer.setInterval(200)
-        self._qt_timer.timeout.connect(self._timer.tick)
-
-        self._build_ui()
-        self._sync_labels()
-
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(20)
-
-        self._circle = CircleTimer()
-        self._circle.clicked.connect(self._on_circle_clicked)
-        layout.addWidget(self._circle, 1, Qt.AlignCenter)
-
-        selector_frame = QFrame()
-        selector_frame.setStyleSheet(
-            "QFrame { background-color: #2a2a2a; border-radius: 10px; }"
-        )
-        sel_layout = QVBoxLayout(selector_frame)
-        sel_layout.setContentsMargins(18, 16, 18, 16)
-        sel_layout.setSpacing(12)
-
-        row1 = QHBoxLayout()
-        row1.addWidget(QLabel("任务标签:").__class__())
-        tag_label = QLabel("任务标签:")
-        tag_label.setStyleSheet("color: #dddddd;")
-        tag_label.setFixedWidth(70)
-        row1.addWidget(tag_label)
-        self._tag_combo = QComboBox()
-        self._tag_combo.setEditable(True)
-        self._tag_combo.setStyleSheet(
-            "QComboBox { background-color: #3a3a3a; color: #ffffff; padding: 6px; border: 1px solid #555; border-radius: 5px; }"
-            " QComboBox QAbstractItemView { background-color: #3a3a3a; color: #ffffff; selection-background-color: #555; }"
-        )
-        self._refresh_tag_combo()
-        row1.addWidget(self._tag_combo, 1)
-        sel_layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        preset_label = QLabel("时长预设:")
-        preset_label.setStyleSheet("color: #dddddd;")
-        preset_label.setFixedWidth(70)
-        row2.addWidget(preset_label)
-        self._preset_combo = QComboBox()
-        self._preset_combo.setStyleSheet(
-            "QComboBox { background-color: #3a3a3a; color: #ffffff; padding: 6px; border: 1px solid #555; border-radius: 5px; }"
-            " QComboBox QAbstractItemView { background-color: #3a3a3a; color: #ffffff; selection-background-color: #555; }"
-        )
-        self._refresh_preset_combo()
-        self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
-        row2.addWidget(self._preset_combo, 1)
-        sel_layout.addLayout(row2)
-
-        layout.addWidget(selector_frame)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        self._start_btn = QPushButton("开始专注")
-        self._start_btn.setStyleSheet(self._primary_btn_style())
-        self._start_btn.clicked.connect(self._on_start_clicked)
-        btn_row.addWidget(self._start_btn)
-
-        self._pause_btn = QPushButton("暂停")
-        self._pause_btn.setStyleSheet(self._secondary_btn_style())
-        self._pause_btn.clicked.connect(self._on_pause_clicked)
-        self._pause_btn.setVisible(False)
-        btn_row.addWidget(self._pause_btn)
-
-        self._resume_btn = QPushButton("继续")
-        self._resume_btn.setStyleSheet(self._primary_btn_style())
-        self._resume_btn.clicked.connect(self._on_resume_clicked)
-        self._resume_btn.setVisible(False)
-        btn_row.addWidget(self._resume_btn)
-
-        self._abandon_btn = QPushButton("放弃")
-        self._abandon_btn.setStyleSheet(self._danger_btn_style())
-        self._abandon_btn.clicked.connect(self._on_abandon_clicked)
-        self._abandon_btn.setVisible(False)
-        btn_row.addWidget(self._abandon_btn)
-
-        self._skip_btn = QPushButton("跳过休息")
-        self._skip_btn.setStyleSheet(self._secondary_btn_style())
-        self._skip_btn.clicked.connect(self._on_skip_break_clicked)
-        self._skip_btn.setVisible(False)
-        btn_row.addWidget(self._skip_btn)
-
-        layout.addLayout(btn_row)
-
-        self._today_label = QLabel()
-        self._today_label.setAlignment(Qt.AlignCenter)
-        self._today_label.setStyleSheet("color: #aaaaaa; font-size: 12px;")
-        layout.addWidget(self._today_label)
-        self._update_today_label()
-
-    def _primary_btn_style(self) -> str:
-        return (
-            "QPushButton { background-color: #e74c3c; color: #ffffff; padding: 10px 22px;"
-            " border: none; border-radius: 6px; font-weight: bold; font-size: 14px; }"
-            " QPushButton:hover { background-color: #c0392b; }"
-            " QPushButton:disabled { background-color: #666; }"
-        )
-
-    def _secondary_btn_style(self) -> str:
-        return (
-            "QPushButton { background-color: #3a3a3a; color: #ffffff; padding: 10px 22px;"
-            " border: 1px solid #555; border-radius: 6px; font-size: 14px; }"
-            " QPushButton:hover { background-color: #4a4a4a; }"
-            " QPushButton:disabled { color: #888; }"
-        )
-
-    def _danger_btn_style(self) -> str:
-        return (
-            "QPushButton { background-color: transparent; color: #e74c3c; padding: 10px 22px;"
-            " border: 1px solid #e74c3c; border-radius: 6px; font-size: 14px; }"
-            " QPushButton:hover { background-color: rgba(231, 76, 60, 0.1); }"
-        )
-
-    def _refresh_tag_combo(self) -> None:
-        current = self._tag_combo.currentText()
-        self._tag_combo.blockSignals(True)
-        self._tag_combo.clear()
-        for t in self._settings_manager.get().task_tags:
-            self._tag_combo.addItem(t)
-        if current:
-            idx = self._tag_combo.findText(current)
-            if idx >= 0:
-                self._tag_combo.setCurrentIndex(idx)
-            else:
-                self._tag_combo.setEditText(current)
-        self._tag_combo.blockSignals(False)
-
-    def _refresh_preset_combo(self) -> None:
-        self._preset_combo.blockSignals(True)
-        self._preset_combo.clear()
-        for minutes in self._settings_manager.get().duration_presets:
-            self._preset_combo.addItem(f"{minutes} 分钟", minutes * 60)
-        s = self._settings_manager.get()
-        default_idx = self._preset_combo.findData(s.work_minutes * 60)
-        if default_idx >= 0:
-            self._preset_combo.setCurrentIndex(default_idx)
-        self._preset_combo.blockSignals(False)
-
-    def _on_preset_changed(self, index: int) -> None:
-        if self._timer.state == TimerState.RUNNING:
-            return
-        data = self._preset_combo.itemData(index)
-        if data is not None:
-            self._timer.set_total_seconds(int(data))
-            self._sync_labels()
-
-    def _on_circle_clicked(self) -> None:
-        state = self._timer.state
-        if state == TimerState.IDLE:
-            self._on_start_clicked()
-        elif state == TimerState.RUNNING:
-            self._on_pause_clicked()
-        elif state == TimerState.PAUSED:
-            self._on_resume_clicked()
-
-    def _current_task_tag(self) -> str:
-        text = self._tag_combo.currentText().strip()
-        if text and text not in self._settings_manager.get().task_tags:
-            self._settings_manager.add_tag(text)
-            self._refresh_tag_combo()
-        return text or "未分类"
-
-    def _on_start_clicked(self) -> None:
-        s: AppSettings = self._settings_manager.get()
-        if self._timer.state == TimerState.IDLE:
-            self._session_type = SessionType.WORK
-            self._timer.set_total_seconds(s.work_minutes * 60)
-        self._session_id = self._storage.create_session(
-            task_tag=self._current_task_tag(),
-            session_type=self._session_type,
-            duration_seconds=self._timer.total_seconds,
-            started_at=datetime.now(),
-        )
-        self._timer.start()
-        self._qt_timer.start()
-
-    def _on_pause_clicked(self) -> None:
-        if self._timer.state != TimerState.RUNNING:
-            return
-        self._timer.pause()
-        self._qt_timer.stop()
-        self._persist_current_status(SessionStatus.PAUSED)
-
-    def _on_resume_clicked(self) -> None:
-        if self._timer.state != TimerState.PAUSED:
-            return
-        self._timer.resume()
-        self._qt_timer.start()
-
-    def _on_abandon_clicked(self) -> None:
-        if self._timer.state in (TimerState.IDLE, TimerState.COMPLETED):
-            return
-        reply = QMessageBox.question(
-            self,
-            "确认放弃",
-            "确定要放弃本次计时吗？放弃将不计入完成数。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-        self._timer.abandon()
-        self._qt_timer.stop()
-        self._persist_current_status(SessionStatus.ABANDONED)
-        self._reset_to_idle()
-
-    def _on_skip_break_clicked(self) -> None:
-        s = self._settings_manager.get()
-        if s.strict_mode and self._session_type in (SessionType.SHORT_BREAK, SessionType.LONG_BREAK):
-            QMessageBox.information(self, "严格模式", "严格模式下无法跳过休息。")
-            return
-        self._persist_current_status(SessionStatus.ABANDONED)
-        self._timer.reset()
-        self._qt_timer.stop()
-        self._start_work_session()
-
-    def _persist_current_status(self, status: SessionStatus) -> None:
-        if self._session_id is None:
-            return
-        self._storage.update_session_status(
-            session_id=self._session_id,
-            status=status,
-            actual_duration_seconds=self._timer.get_elapsed_seconds(),
-            ended_at=datetime.now(),
-        )
-        self._update_today_label()
-
-    def _on_tick(self, snapshot: TimerSnapshot) -> None:
-        self._circle.set_progress(snapshot.progress)
-        self._circle.set_time_text(format_seconds(snapshot.remaining_seconds))
-
-    def _on_state_changed(self, old: TimerState, new: TimerState) -> None:
-        self._update_button_visibility()
-        self._sync_labels()
-
-    def _sync_labels(self) -> None:
-        snap = self._timer.snapshot()
-        self._circle.set_progress(snap.progress)
-        self._circle.set_time_text(format_seconds(snap.remaining_seconds))
-        if self._session_type == SessionType.WORK:
-            if snap.state == TimerState.RUNNING:
-                label = "专注中"
-                color = QColor("#e74c3c")
-            elif snap.state == TimerState.PAUSED:
-                label = "已暂停"
-                color = QColor("#f39c12")
-            elif snap.state == TimerState.COMPLETED:
-                label = "专注完成"
-                color = QColor("#27ae60")
-            else:
-                label = "准备开始"
-                color = QColor("#e74c3c")
-        else:
-            if snap.state == TimerState.RUNNING:
-                label = "休息中"
-                color = QColor("#3498db")
-            elif snap.state == TimerState.PAUSED:
-                label = "休息已暂停"
-                color = QColor("#f39c12")
-            elif snap.state == TimerState.COMPLETED:
-                label = "休息结束"
-                color = QColor("#27ae60")
-            else:
-                label = "准备休息"
-                color = QColor("#3498db")
-        self._circle.set_label_text(label)
-        self._circle.set_progress_color(color)
-        self._update_today_label()
-
-    def _update_button_visibility(self) -> None:
-        state = self._timer.state
-        is_break = self._session_type in (SessionType.SHORT_BREAK, SessionType.LONG_BREAK)
-        self._start_btn.setVisible(state in (TimerState.IDLE, TimerState.COMPLETED) and not is_break)
-        self._pause_btn.setVisible(state == TimerState.RUNNING)
-        self._resume_btn.setVisible(state == TimerState.PAUSED)
-        self._abandon_btn.setVisible(state in (TimerState.RUNNING, TimerState.PAUSED))
-        s = self._settings_manager.get()
-        skip_visible = (state in (TimerState.RUNNING, TimerState.PAUSED)) and is_break
-        self._skip_btn.setVisible(skip_visible)
-        if skip_visible:
-            self._skip_btn.setEnabled(not s.strict_mode)
-
-    def _update_today_label(self) -> None:
-        n = self._storage.get_today_completed_count()
-        self._today_label.setText(f"今日已完成 {n} 个番茄")
-
-    def _on_timer_completed(self) -> None:
-        self._qt_timer.stop()
-        if self._timer.end_reason == TimerEndReason.COMPLETED:
-            status = SessionStatus.COMPLETED
-        else:
-            status = SessionStatus.PAUSED
-        self._persist_current_status(status)
-
-        self._sync_labels()
-        self._update_button_visibility()
-
-        if self._session_type == SessionType.WORK:
-            self._completed_work_count += 1
-            self._notify("专注完成", "好样的！休息一下吧。")
-            self._schedule_break()
-        else:
-            self._notify("休息结束", "继续加油，开始下一个番茄！")
-            self._start_work_session()
-
-    def _schedule_break(self) -> None:
-        s: AppSettings = self._settings_manager.get()
-        if self._completed_work_count % s.long_break_interval == 0:
-            self._session_type = SessionType.LONG_BREAK
-            duration = s.long_break_minutes * 60
-        else:
-            self._session_type = SessionType.SHORT_BREAK
-            duration = s.short_break_minutes * 60
-        self._timer.set_total_seconds(duration)
-        self._session_id = self._storage.create_session(
-            task_tag="休息",
-            session_type=self._session_type,
-            duration_seconds=duration,
-            started_at=datetime.now(),
-        )
-        self._timer.start()
-        self._qt_timer.start()
-        self._update_button_visibility()
-        self._sync_labels()
-
-    def _start_work_session(self) -> None:
-        s: AppSettings = self._settings_manager.get()
-        self._session_type = SessionType.WORK
-        self._timer.set_total_seconds(s.work_minutes * 60)
-        self._timer.reset()
-        self._update_button_visibility()
-        self._sync_labels()
-        self._start_btn.setVisible(True)
-
-    def _reset_to_idle(self) -> None:
-        self._session_type = SessionType.WORK
-        self._timer.reset()
-        self._update_button_visibility()
-        self._sync_labels()
-
-    def _notify(self, title: str, body: str) -> None:
-        s = self._settings_manager.get()
-        parent = self.window()
-        if s.show_notification and isinstance(parent, MainWindow):
-            parent.show_tray_message(title, body)
-        if s.play_sound and isinstance(parent, MainWindow):
-            parent.play_notification_sound()
-
-    def tray_toggle_pause_resume(self) -> None:
-        state = self._timer.state
-        if state == TimerState.RUNNING:
-            self._on_pause_clicked()
-        elif state == TimerState.PAUSED:
-            self._on_resume_clicked()
-
-    def tray_abandon(self) -> None:
-        self._on_abandon_clicked()
-
-    def refresh_from_settings(self) -> None:
-        self._refresh_tag_combo()
-        self._refresh_preset_combo()
-        self._update_button_visibility()
-
-    def get_status_text(self) -> str:
-        snap = self._timer.snapshot()
-        time_str = format_seconds(snap.remaining_seconds)
-        if self._session_type == SessionType.WORK:
-            prefix = "专注"
-        else:
-            prefix = "休息"
-        if snap.state == TimerState.RUNNING:
-            return f"{prefix}中 {time_str}"
-        if snap.state == TimerState.PAUSED:
-            return f"已暂停 {time_str}"
-        if snap.state == TimerState.COMPLETED:
-            return f"{prefix}已完成"
-        return "准备开始"
+def _app_icon() -> QIcon:
+    pm = QPixmap(64, 64)
+    pm.fill(QColor(0, 0, 0, 0))
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setBrush(QBrush(QColor("#3498db")))
+    p.setPen(QPen(QColor("#ffffff"), 3))
+    p.drawEllipse(6, 6, 52, 52)
+    p.setPen(QPen(QColor("#ffffff")))
+    f = p.font()
+    f.setBold(True)
+    f.setPointSize(26)
+    p.setFont(f)
+    p.drawText(pm.rect(), Qt.AlignCenter, "客")
+    p.end()
+    return QIcon(pm)
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, settings_manager: SettingsManager, storage: Storage):
+    def __init__(self, storage: CustomerStorage, auto_show_today: bool = True):
         super().__init__()
-        self._settings_manager = settings_manager
         self._storage = storage
-        self._close_to_tray = True
+        self._current_customer: Optional[Customer] = None
+        self._seeded_sample = False
+        self._auto_show_today_flag = auto_show_today
 
-        self.setWindowTitle("番茄钟")
-        self.setWindowIcon(_window_icon())
-        self.setMinimumSize(520, 720)
-        self.resize(520, 780)
+        self.setWindowTitle("客户跟进工具 · CRM")
+        self.setWindowIcon(_app_icon())
+        self.resize(1400, 820)
+        self.setMinimumSize(1100, 680)
+        self._build_style()
+        self._build_toolbar()
+        self._build_body()
+        self._build_statusbar()
+
+        self._refresh_tags()
+        self._refresh_list()
+
+    # ---------------------------------------------------------------- UI
+    def _build_style(self) -> None:
         self.setStyleSheet(
-            "QMainWindow, QWidget { background-color: #1e1e1e; color: #ffffff; }"
-            " QTabWidget::pane { border: none; background: #1e1e1e; }"
-            " QTabBar::tab { background-color: #2a2a2a; color: #cccccc; padding: 10px 22px;"
-            " margin-right: 2px; border-top-left-radius: 6px; border-top-right-radius: 6px; }"
-            " QTabBar::tab:selected { background-color: #1e1e1e; color: #ffffff; font-weight: bold; }"
-            " QLabel { color: #dddddd; }"
+            "QMainWindow { background-color: #1e1e1e; }"
+            " QToolBar { background-color: #232323; border-bottom: 1px solid #333; padding: 4px; spacing: 6px; }"
+            " QToolBar QToolButton, QToolBar QPushButton {"
+            "   background-color: #2d2d2d; color: #e6e6e6; padding: 6px 14px;"
+            "   border: 1px solid #3d3d3d; border-radius: 4px; }"
+            " QToolBar QToolButton:hover, QToolBar QPushButton:hover {"
+            "   background-color: #3a3a3a; }"
+            " QToolBar #primary {"
+            "   background-color: #3498db; color: #fff; border: none; font-weight: bold; }"
+            " QToolBar #primary:hover { background-color: #2980b9; }"
+            " QToolBar #success {"
+            "   background-color: #27ae60; color: #fff; border: none; font-weight: bold; }"
+            " QToolBar #success:hover { background-color: #219150; }"
+            " QStatusBar { background-color: #232323; color: #aaa; border-top: 1px solid #333; padding: 0 8px; }"
+            " QSplitter::handle { background-color: #333; }"
+            " QSplitter::handle:horizontal { width: 2px; }"
         )
 
-        self._build_ui()
-        self._tray = SystemTray(self)
-        self._tray.show_main_requested.connect(self._toggle_window)
-        self._tray.quit_requested.connect(self._quit_app)
-        self._tray.pause_resume_requested.connect(self._focus_page.tray_toggle_pause_resume)
-        self._tray.abandon_requested.connect(self._focus_page.tray_abandon)
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            self._tray.show()
+    def _build_toolbar(self) -> None:
+        tb = QToolBar("主工具栏", self)
+        tb.setMovable(False)
+        tb.setIconSize(tb.iconSize())
+        self.addToolBar(tb)
 
-        self._tray_status_timer = QTimer(self)
-        self._tray_status_timer.setInterval(1000)
-        self._tray_status_timer.timeout.connect(self._update_tray_status)
-        self._tray_status_timer.start()
+        add_btn = QPushButton("➕ 新增客户")
+        add_btn.setObjectName("primary")
+        add_btn.clicked.connect(self._on_add_customer)
+        tb.addWidget(add_btn)
 
-    def _build_ui(self) -> None:
+        today_btn = QPushButton("📌 今日待跟进")
+        today_btn.clicked.connect(self._show_today_dialog)
+        tb.addWidget(today_btn)
+
+        import_btn = QPushButton("📥 导入 CSV")
+        import_btn.clicked.connect(self._on_import_csv)
+        tb.addWidget(import_btn)
+
+        export_btn = QPushButton("📤 导出 CSV")
+        export_btn.clicked.connect(self._on_export_csv)
+        tb.addWidget(export_btn)
+
+        tb.addSeparator()
+
+        seed_btn = QPushButton("🧪 加载演示数据")
+        seed_btn.setObjectName("success")
+        seed_btn.clicked.connect(self._seed_sample_data)
+        tb.addWidget(seed_btn)
+
+        tb.addSeparator()
+
+        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn.clicked.connect(self._refresh_all)
+        tb.addWidget(refresh_btn)
+
+        tb.addSeparator()
+
+        del_btn = QPushButton("🗑️ 删除客户")
+        del_btn.setStyleSheet(
+            "QPushButton { background-color: transparent; color: #e74c3c; padding: 6px 14px;"
+            " border: 1px solid #e74c3c; border-radius: 4px; }"
+            " QPushButton:hover { background-color: rgba(231,76,60,0.15); }"
+        )
+        del_btn.clicked.connect(self._on_delete_current)
+        tb.addWidget(del_btn)
+
+    def _build_body(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(True)
+        self.filter_bar = FilterBar()
+        self.filter_bar.filters_changed.connect(self._refresh_list)
+        self.filter_bar.reset_requested.connect(self._refresh_tags)
+        root.addWidget(self.filter_bar)
 
-        self._focus_page = FocusPage(self._settings_manager, self._storage)
-        self._history_page = HistoryPage(self._storage)
-        self._settings_page = SettingsPage(self._settings_manager)
-        self._settings_page.settings_changed.connect(self._on_settings_changed)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(2)
 
-        self._tabs.addTab(self._focus_page, "专注")
-        self._tabs.addTab(self._history_page, "统计")
-        self._tabs.addTab(self._settings_page, "设置")
-        self._tabs.currentChanged.connect(self._on_tab_changed)
+        # 左栏：客户列表
+        left_frame = QFrame()
+        left_frame.setStyleSheet(
+            "QFrame { background-color: #1e1e1e; border-right: 1px solid #333; }"
+        )
+        left_layout = QVBoxLayout(left_frame)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        self.customer_list = CustomerListWidget()
+        self.customer_list.customer_selected.connect(self._on_customer_selected)
+        self.customer_list.customer_context_menu.connect(self._on_customer_context)
+        left_layout.addWidget(self.customer_list)
+        left_frame.setMinimumWidth(300)
 
-        layout.addWidget(self._tabs)
+        # 中栏：客户详情
+        mid_frame = QFrame()
+        mid_frame.setStyleSheet(
+            "QFrame { background-color: #1e1e1e; border-right: 1px solid #333; }"
+        )
+        mid_layout = QVBoxLayout(mid_frame)
+        mid_layout.setContentsMargins(0, 0, 0, 0)
+        self.customer_detail = CustomerDetailWidget()
+        self.customer_detail.edit_requested.connect(self._on_edit_current)
+        self.customer_detail.add_followup_requested.connect(self._on_add_followup)
+        self.customer_detail.delete_requested.connect(self._on_delete_current)
+        mid_layout.addWidget(self.customer_detail)
+        mid_frame.setMinimumWidth(380)
 
-    def _on_tab_changed(self, index: int) -> None:
-        if index == 1:
-            self._history_page.refresh()
+        # 右栏：跟进时间线
+        right_frame = QFrame()
+        right_frame.setStyleSheet("QFrame { background-color: #1e1e1e; }")
+        right_layout = QVBoxLayout(right_frame)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        self.timeline = TimelineWidget()
+        right_layout.addWidget(self.timeline)
+        right_frame.setMinimumWidth(360)
 
-    def _on_settings_changed(self) -> None:
-        self._focus_page.refresh_from_settings()
+        splitter.addWidget(left_frame)
+        splitter.addWidget(mid_frame)
+        splitter.addWidget(right_frame)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 4)
+        splitter.setStretchFactor(2, 4)
+        splitter.setSizes([360, 520, 520])
 
-    def _toggle_window(self) -> None:
-        if self.isVisible() and not self.isMinimized():
-            self.hide()
-        else:
-            self.showNormal()
-            self.activateWindow()
-            self.raise_()
+        root.addWidget(splitter, 1)
 
-    def _quit_app(self) -> None:
-        self._close_to_tray = False
-        self.close()
+    def _build_statusbar(self) -> None:
+        sb = QStatusBar()
+        self.setStatusBar(sb)
+        self._status_label = QLabel("就绪")
+        sb.addWidget(self._status_label, 1)
 
-    def closeEvent(self, event: QCloseEvent) -> None:
-        if self._close_to_tray and QSystemTrayIcon.isSystemTrayAvailable():
-            event.ignore()
-            self.hide()
-            if self._settings_manager.get().show_notification:
-                self._tray.showMessage(
-                    "番茄钟",
-                    "已最小化到系统托盘，计时继续进行。",
-                    QSystemTrayIcon.Information,
-                    2000,
+        self._today_stat = QLabel("今日待跟进：加载中…")
+        self._today_stat.setStyleSheet("color: #f39c12; padding: 0 6px;")
+        sb.addPermanentWidget(self._today_stat)
+
+    # --------------------------------------------------------- data flow
+    def _refresh_tags(self) -> None:
+        tags = self._storage.all_tags()
+        self.filter_bar.set_tags(tags)
+
+    def _refresh_list(self) -> None:
+        params = self.filter_bar.params()
+        customers = self._storage.list_customers(**params)
+        self.customer_list.populate(customers)
+        n = self._storage.get_today_count() if hasattr(self._storage, "get_today_count") else None
+        if n is None:
+            today_list = self._storage.list_today_follow_ups()
+            n = len(today_list)
+        self._today_stat.setText(f"今日/过期待跟进：{n} 位")
+        if not self._current_customer and customers:
+            self.customer_list.select_customer(customers[0].id)
+        elif self._current_customer:
+            self.customer_list.select_customer(self._current_customer.id)
+        self._status(f"已加载 {len(customers)} 位客户" + (
+            f"（筛选：{params.get('search') or '无'} / 标签：{params.get('tag') or '全部'}）"
+        ))
+
+    def _refresh_all(self) -> None:
+        self._refresh_tags()
+        self._refresh_list()
+        if self._current_customer:
+            c = self._storage.get_customer(self._current_customer.id)
+            if c:
+                self._populate_customer(c)
+            else:
+                self._populate_customer(None)
+
+    def _populate_customer(self, customer: Optional[Customer]) -> None:
+        self._current_customer = customer
+        self.customer_detail.set_customer(customer)
+        records = self._storage.list_follow_ups(customer.id) if customer else []
+        self.timeline.set_records(customer, records)
+
+    def _on_customer_selected(self, customer_id: int) -> None:
+        customer = self._storage.get_customer(customer_id)
+        self._populate_customer(customer)
+
+    def _on_customer_context(self, customer_id: int, action) -> None:
+        if action.text() == "删除客户":
+            c = self._storage.get_customer(customer_id)
+            if not c:
+                return
+            r = QMessageBox.question(
+                self,
+                "删除客户",
+                f"确定要删除客户「{c.company}」吗？\n所有跟进记录将被级联删除。",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if r == QMessageBox.Yes:
+                self._storage.delete_customer(customer_id)
+                if self._current_customer and self._current_customer.id == customer_id:
+                    self._populate_customer(None)
+                self._refresh_all()
+                self._status(f"已删除客户：{c.company}")
+
+    # --------------------------------------------------------- actions
+    def _on_add_customer(self) -> None:
+        dlg = CustomerEditDialog(self._storage, parent=self)
+        if dlg.exec():
+            c = dlg.result_customer()
+            if c:
+                self._refresh_all()
+                self.customer_list.select_customer(c.id)
+                self._status(f"已新增客户：{c.company}")
+
+    def _on_edit_current(self) -> None:
+        if not self._current_customer:
+            return
+        dlg = CustomerEditDialog(self._storage, self._current_customer, self)
+        if dlg.exec():
+            c = dlg.result_customer()
+            if c:
+                self._refresh_all()
+                self.customer_list.select_customer(c.id)
+                self._status(f"已更新客户：{c.company}")
+
+    def _on_delete_current(self) -> None:
+        if not self._current_customer:
+            return
+        self._on_customer_context(self._current_customer.id, type("A", (), {"text": lambda s: "删除客户"})())
+
+    def _on_add_followup(self) -> None:
+        if not self._current_customer:
+            return
+        dlg = FollowUpDialog(self._current_customer, self)
+        if dlg.exec():
+            rec = dlg.result_record()
+            if rec:
+                self._storage.add_follow_up(rec)
+                if dlg.should_update_next_follow_up():
+                    c = self._storage.get_customer(self._current_customer.id)
+                    if c:
+                        new_next = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d 09:30:00")
+                        c.next_follow_up = new_next
+                        self._storage.update_customer(c)
+                self._refresh_all()
+                self.customer_list.select_customer(self._current_customer.id)
+                self._status(f"已为「{self._current_customer.company}」新增 1 条跟进记录")
+
+    def _show_today_dialog(self) -> None:
+        today_list = self._storage.list_today_follow_ups()
+        dlg = TodayFollowUpDialog(today_list, self)
+        dlg.open_customer.connect(
+            lambda cid: (self.customer_list.select_customer(cid), self._on_customer_selected(cid))
+        )
+        dlg.exec()
+
+    def _on_import_csv(self) -> None:
+        dlg = CsvImportDialog(self._storage, self)
+        if dlg.exec():
+            stats = dlg.result_stats()
+            if stats:
+                created, merged, _ = stats
+                self._refresh_all()
+                self._status(f"CSV 导入完成：新增 {created}，合并 {merged}")
+                QMessageBox.information(
+                    self,
+                    "导入完成",
+                    f"新增客户：{created} 位\n合并客户：{merged} 位",
                 )
-        else:
-            event.accept()
-            QApplication.instance().quit()
 
-    def show_tray_message(self, title: str, body: str) -> None:
-        if QSystemTrayIcon.isSystemTrayAvailable():
-            self._tray.showMessage(title, body, QSystemTrayIcon.Information, 4000)
-
-    def play_notification_sound(self) -> None:
+    def _on_export_csv(self) -> None:
+        default_name = f"customers_{date.today().isoformat()}.csv"
+        p, _ = QFileDialog.getSaveFileName(
+            self, "导出 CSV", str(Path.home() / default_name), "CSV 文件 (*.csv)"
+        )
+        if not p:
+            return
         try:
-            from PySide6.QtMultimedia import QSoundEffect
-            from PySide6.QtCore import QUrl
-            if not hasattr(self, "_sound"):
-                self._sound = QSoundEffect(self)
-                self._sound.setVolume(0.8)
-                beep = QUrl.fromLocalFile("")
-                self._sound.setSource(beep)
-            QApplication.beep()
-        except Exception:
-            try:
-                QApplication.beep()
-            except Exception:
-                pass
+            n = self._storage.export_csv(p)
+            self._status(f"已导出 {n} 位客户到 {p}")
+            QMessageBox.information(self, "导出完成", f"成功导出 {n} 位客户。")
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", str(e))
 
-    def _update_tray_status(self) -> None:
-        text = self._focus_page.get_status_text()
-        self._tray.update_status(text)
+    # --------------------------------------------------------- seeding
+    def _seed_sample_data(self) -> None:
+        if self._seeded_sample:
+            r = QMessageBox.question(
+                self, "提示", "演示数据已加载过，是否再次补充一批？",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if r != QMessageBox.Yes:
+                return
+        self._seeded_sample = True
+        today = date.today()
 
-    def changeEvent(self, event: QEvent) -> None:
-        if event.type() == QEvent.WindowStateChange and self.isMinimized():
-            if QSystemTrayIcon.isSystemTrayAvailable():
-                pass
-        super().changeEvent(event)
+        def d(offset_days, hour=9, minute=30):
+            dt = datetime.combine(today, datetime.min.time()) + timedelta(days=offset_days, hours=hour, minutes=minute)
+            return dt.isoformat(timespec="seconds")
+
+        seed = [
+            ("星海科技有限公司", "张明", "13800138000", "zhang@xinghai.com", "重点,互联网", "深圳", "近期关注SaaS方案", d(-3), d(-1)),
+            ("北辰贸易", "李经理", "13900139001", "li@beichen.cn", "老客户", "广州", "下月准备续签", d(0), d(10, 14, 0)),
+            ("云峰咨询", "王总", "13700137002", "wang@yunfeng.cn", "潜在", "北京", "需要定制化方案", d(-12), d(0)),
+            ("绿洲环保科技", "赵工", "13600136003", "", "新客户", "上海", "", d(2), d(5, 10, 0)),
+            ("蓝海文化传媒", "孙女士", "13500135004", "sun@lanhai.com", "重点,传媒", "杭州", "对视频方案有兴趣", d(-20), d(-10)),
+            ("鸿远建材", "陈老板", "13400134005", "", "建材", "成都", "", d(5), d(8, 11, 30)),
+            ("智联信息技术", "刘总", "13300133006", "liu@zhilian.com", "重点", "南京", "有一个百万级项目", d(0, 15, 0), d(1)),
+            ("恒运物流", "周经理", "", "zhou@hengyun.cn", "物流,老客户", "武汉", "", d(1), d(-2)),
+            ("星辰教育集团", "吴主任", "13100131008", "wu@star.edu", "教育", "西安", "暑期招生", d(7), d(3)),
+            ("盛泰金融", "郑总", "13000130009", "", "金融,高意向", "北京", "合规评估中", d(0, 11, 0), d(-5)),
+        ]
+        fu_seed = [
+            ("星海科技有限公司", d(-1, 10, 30), "电话", "介绍SaaS年付方案，对方要求演示PPT", "客户回复下周提供内部排期", "下周三前发送资料包"),
+            ("星海科技有限公司", d(-10, 15, 0), "微信", "初次添加好友，交换名片", "对产品比较认可", None),
+            ("北辰贸易", d(10, 14, 30), "面谈", "续签合同细节敲定", "同意原合同8%涨点", None),
+            ("北辰贸易", d(5, 9, 0), "电话", "提醒合同到期，客户要求面谈", "约了10号见", None),
+            ("云峰咨询", d(0, 16, 0), "邮件", "发送定制化方案v1", "客户回复已阅读并转内部评估", "下周二跟进反馈"),
+            ("绿洲环保科技", d(5, 10, 15), "电话", "确认需求后安排技术对接", "需要约技术同事", "技术对接时间确认中"),
+            ("蓝海文化传媒", d(-10, 11, 30), "面谈", "视频方案初步沟通", "客户偏好短视频方案", None),
+            ("蓝海文化传媒", d(-2, 14, 0), "微信", "发送方案给客户", "客户反馈需内部讨论", "下周再跟进"),
+            ("智联信息技术", d(1, 10, 30), "电话", "与采购确认招标时间", "预计月底有消息", "月底跟进"),
+            ("恒运物流", d(-2, 9, 0), "电话", "确认新年度框架合同", "客户说内部走流程", "月底回签"),
+            ("星辰教育集团", d(3, 15, 0), "微信", "讨论暑期招生方案", "客户说需要下周校长拍板", None),
+            ("盛泰金融", d(-5, 10, 0), "面谈", "合规评估初次见面", "客户说2周内反馈", None),
+            ("盛泰金融", d(0, 11, 10), "电话", "合规评估进度跟进", "已通过内部评审，商务推进中", "本周签合同"),
+        ]
+
+        for row in seed:
+            company, contact, phone, email, tags, addr, notes, created, next_fu = row
+            existing = self._storage.find_by_company(company)
+            if existing:
+                continue
+            c = Customer(
+                company=company, contact_name=contact, phone=phone, email=email,
+                tags=tags, address=addr, notes=notes, next_follow_up=next_fu, created_at=created,
+            )
+            cid = self._storage.add_customer(c)
+
+            for fu_row in fu_seed:
+                if fu_row[0] == company:
+                    _, ct_time, ch, content, result, next_step = fu_row
+                    cust = self._storage.get_customer(cid)
+                    if cust and (cust.last_contact is None or ct_time > cust.last_contact):
+                        cust.last_contact = ct_time
+                        self._storage.update_customer(cust)
+                    rec = FollowUpRecord(
+                        customer_id=cid, contact_time=ct_time, channel=ch,
+                        content=content, result=result, next_step=next_step or "",
+                    )
+                    self._storage.add_follow_up(rec)
+
+        self._refresh_all()
+        self._status("演示数据加载完成")
+
+    # --------------------------------------------------------- utils
+    def _status(self, msg: str) -> None:
+        self._status_label.setText(msg)
+        self.statusBar().showMessage(msg, 5000)
+
+    # --------------------------------------------------------- today count
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(300, self._auto_show_today_if_any)
+
+    def _auto_show_today_if_any(self) -> None:
+        if not self._auto_show_today_flag:
+            return
+        today_list = self._storage.list_today_follow_ups()
+        if today_list:
+            self._show_today_dialog()

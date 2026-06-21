@@ -1,0 +1,26 @@
+smoke_test starting...
+step1: QApplication created
+step2: storage created
+step3: MainWindow created
+step4: MainWindow shown
+step5: qWait 200 done
+step6: seed_btn found=True text=🧪 加载演示数据
+step7: seed_btn.click() called
+step8: qWait 300 done
+[布局验证] 左列表/中详情/右时间线：三栏横排 = PASS
+[UI 标红验证] 红色过期 Badge：4 个：PASS
+[UI 橙色今日验证] 今日 Badge：1 个：PASS
+[今日待跟进列表] 共 5 位：['蓝海文化传媒', '盛泰金融', '恒运物流', '星海科技有限公司', '云峰咨询']
+step9: about to show today dialog
+  -> closing dialog: 今日待跟进
+step10: today dialog handled
+[今日待跟进弹窗] 找到 1 个已弹出对话框：PASS
+[新增跟进前] 蓝海文化传媒 last_contact = 2026-06-19T14:00:00
+[新增跟进后] 蓝海文化传媒 last_contact = 2026-06-21T13:33:46
+[新增跟进刷新列表「最后联系」] PASS
+[CSV 导入同名合并] merged=1 created=0 tags=['Smoke测试', '传媒', '重点'] PASS
+[最近联系日期范围筛选] 已启用：2026-06-14 ～ 2026-06-21 PASS
+  > 筛选命中：5 位客户
+
+========== 冷启动 Smoke Test 全部通过 ==========
+(note: smoke_test.db 清理时被 SQLite 占用，跳过，不影响结论)

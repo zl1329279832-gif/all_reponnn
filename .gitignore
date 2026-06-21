@@ -1,0 +1,70 @@
+HELP.md
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### SQLite ###
+*.db
+*.sqlite
+*.sqlite3
+game.db
+
+### Logs ###
+*.log
+startup.log
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Maven ###
+.mvn
+mvnw
+mvnw.cmd
+
+### Temp ###
+*.tmp
+*.temp
+
+### Local test scripts ###
+main-flow.ps1
+concurrent-join.ps1
+kill-java.ps1
+curl-demo.cmd
+curl-flow.ps1
+concurrency-tests.ps1
+rematch-test.ps1
+_out_*.json
+stdout.log
+stderr.log
+stdout_rematch.log
+stderr_rematch.log

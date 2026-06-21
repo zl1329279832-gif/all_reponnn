@@ -65,11 +65,81 @@ mvn spring-boot:run
   "redPlayerId": "player_red_001",
   "blackPlayerId": "player_black_001",
   "redPlayerName": "张三",
-  "blackPlayerName": "李四"
+  "blackPlayerName": "李四",
+  "baseSeconds": 600
 }
 ```
 
-返回: `MatchDto` (包含 matchId、初始 FEN、棋盘显示等)
+字段说明:
+- `redPlayerId` / `blackPlayerId` (必填): 红方/黑方玩家 ID
+- `redPlayerName` / `blackPlayerName` (可选): 显示名称
+- `baseSeconds` (可选, 正整数): **每方可用总秒数**。不传则不启用计时, 行为与无计时版本完全一致。
+
+返回: `MatchDto` (包含 matchId、初始 FEN、棋盘显示, 启用计时时还含 `baseSeconds` / `redTimeLeft` / `blackTimeLeft`)
+
+---
+
+## 计时功能 (可选)
+
+创建对局时传入 `baseSeconds` 即可启用每方独立倒计时。
+
+### 行为规则
+- **不传 `baseSeconds`**: 完全向后兼容, 不做任何计时相关操作, 快照里也不会出现时间字段。
+- **启用计时后**:
+  - 双方初始剩余时间均为 `baseSeconds`
+  - 从第一手开始, 每次轮到某方行棋时, 以「对局创建时间」(首手) 或「上一步成功落子时间」(后续手) 为起点累计占用时间
+  - **走子校验通过后**才从该方剩余时间里扣除已用秒数
+  - 任意一方时间归零时, 该方直接判负, 对局结束, Elo 照常更新, 之后所有 POST move 返回 400 `对局已结束`
+- GET 对局快照 (`/api/matches/{id}/snapshot`) 在启用计时时额外返回 `timerEnabled`、`baseSeconds`、`redTimeLeft`、`blackTimeLeft`
+
+### 如何手工测试超时判负 (PowerShell)
+
+服务冷启动后 (`mvn spring-boot:run`), 连续执行以下命令。建议把 `baseSeconds` 设得很小 (例如 3 秒), 以便快速观察超时:
+
+```powershell
+# 1. 创建一个每方只有 3 秒的对局
+$body = @{ redPlayerId="alice"; blackPlayerId="bob"; baseSeconds=3 } | ConvertTo-Json
+$m = Invoke-RestMethod http://localhost:8080/api/matches -Method Post -Body $body -ContentType application/json
+$mid = $m.data.id
+Write-Host "Created match $mid, redTimeLeft=$($m.data.redTimeLeft), blackTimeLeft=$($m.data.blackTimeLeft)"
+
+# 2. 查局面快照, 确认 timerEnabled=true, 双方都是 3 秒
+$s = Invoke-RestMethod "http://localhost:8080/api/matches/$mid/snapshot"
+Write-Host "timerEnabled=$($s.data.timerEnabled), nextTurn=$($s.data.nextTurnPlayerId)"
+Write-Host "red=$($s.data.redTimeLeft)s, black=$($s.data.blackTimeLeft)s"
+
+# 3. 红方不立刻走, 等待 5 秒让红方超时 (3 秒用掉 + 2 秒富余)
+Start-Sleep -Seconds 5
+
+# 4. 红方再尝试随便走一步, 应返回 400 且 message 含「时间耗尽」
+$move = @{ playerId="alice"; fromRow=7; fromCol=1; toRow=7; toCol=4 } | ConvertTo-Json
+$r = Invoke-RestMethod "http://localhost:8080/api/matches/$mid/moves" -Method Post -Body $move -ContentType application/json
+Write-Host "code=$($r.code), msg=$($r.message)"
+
+# 5. 查对局详情: 状态应为 BLACK_WIN, winner=bob, redTimeLeft=0
+$end = Invoke-RestMethod "http://localhost:8080/api/matches/$mid"
+Write-Host "status=$($end.data.status), winner=$($end.data.winnerPlayerId)"
+Write-Host "redTimeLeft=$($end.data.redTimeLeft), blackTimeLeft=$($end.data.blackTimeLeft)"
+
+# 6. 黑方再尝试走子, 应返回 400「对局已结束」
+$move2 = @{ playerId="bob"; fromRow=2; fromCol=1; toRow=2; toCol=4 } | ConvertTo-Json
+$r2 = Invoke-RestMethod "http://localhost:8080/api/matches/$mid/moves" -Method Post -Body $move2 -ContentType application/json
+Write-Host "code=$($r2.code), msg=$($r2.message)"
+
+# 7. 查双方 Elo: bob 胜, alice 负, 分数应有变化
+$alice = Invoke-RestMethod "http://localhost:8080/api/players/alice"
+$bob = Invoke-RestMethod "http://localhost:8080/api/players/bob"
+Write-Host "alice elo=$($alice.data.eloRating), wins=$($alice.data.wins), losses=$($alice.data.losses)"
+Write-Host "bob elo=$($bob.data.eloRating), wins=$($bob.data.wins), losses=$($bob.data.losses)"
+```
+
+预期输出要点:
+- Step 1: `redTimeLeft=3, blackTimeLeft=3`
+- Step 2: `timerEnabled=True, nextTurn=alice`
+- Step 4: `code=400`, message 包含「时间耗尽」
+- Step 5: `status=BLACK_WIN, winner=bob, redTimeLeft=0`
+- Step 6: `code=400`, message 包含「对局已结束」
+- Step 7: bob 的 `wins=1`、alice 的 `losses=1`, Elo 一升一降
 
 ### 2. 走一步棋
 **POST** `/api/matches/{matchId}/moves`
@@ -213,6 +283,10 @@ mvn clean spring-boot:run
 | ChessApplicationIntegrationTest | testConcurrentMovesOnlyOneSucceeds | 并发 POST move 控制 |
 | ChessApplicationIntegrationTest | testNotYourTurn | 不是你的回合 |
 | ChessApplicationIntegrationTest | 参数校验 / 404 |
+| ChessApplicationIntegrationTest | testCreateMatchWithTimer | 带计时对局创建，初始时间字段 |
+| ChessApplicationIntegrationTest | testCreateMatchNoTimerBackwardCompatible | 不传 baseSeconds 不启用计时，向后兼容 |
+| ChessApplicationIntegrationTest | testTimeoutLosesGame | 红方时间耗尽判负，Elo 更新，对局结束后不能再走子 |
+| ChessApplicationIntegrationTest | testTimerInSnapshot | GET 快照带剩余时间与当前行棋方 |
 
 运行测试:
 ```bash

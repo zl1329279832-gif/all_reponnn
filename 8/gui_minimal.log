@@ -1,0 +1,17 @@
+[1] initial window created
+[2] starting scan (11 good + 1 corrupt)...
+
+!!! TEST FAILED: TclError: can't invoke "winfo" command: application has been destroyed
+Traceback (most recent call last):
+  File "C:\Users\13292\Desktop\solocode\all_reponnn\8\gui_minimal.py", line 50, in <module>
+    app._load_existing_photos()
+  File "C:\Users\13292\Desktop\solocode\all_reponnn\8\photo_organizer\ui\app.py", line 206, in _load_existing_photos
+    self.sidebar.load_photos(photos)
+  File "C:\Users\13292\Desktop\solocode\all_reponnn\8\photo_organizer\ui\sidebar.py", line 122, in load_photos
+    for w in self.winfo_children():
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\13292\AppData\Local\Programs\Python\Python312\Lib\tkinter\__init__.py", line 1107, in winfo_children
+    self.tk.call('winfo', 'children', self._w)):
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_tkinter.TclError: can't invoke "winfo" command: application has been destroyed
+

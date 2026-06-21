@@ -1,4 +1,5 @@
 import os
+import queue
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 from .search import SearchBar
@@ -32,12 +33,14 @@ class PhotoOrganizerApp(ctk.CTk):
         self.scan_worker = None
         self.selected_photos = []
         self.scan_failures = []
+        self._event_queue = queue.Queue()
 
         self._build_menu()
         self._build_ui()
         self._load_existing_photos()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self._drain_queue()
 
     def _build_menu(self):
         menubar = ctk.CTkFrame(self, height=32, fg_color=("gray90", "gray20"))
@@ -129,6 +132,23 @@ class PhotoOrganizerApp(ctk.CTk):
             return
         self._start_scan()
 
+    def _drain_queue(self):
+        try:
+            while True:
+                event = self._event_queue.get_nowait()
+                kind = event[0]
+                if kind == "progress":
+                    _, current, total, filepath = event
+                    self.progress_bar.update_progress(current, total, filepath)
+                elif kind == "done":
+                    self._scan_finished()
+                elif kind == "error":
+                    _, filepath, error = event
+                    self.scan_failures.append((filepath, error))
+        except queue.Empty:
+            pass
+        self.after(80, self._drain_queue)
+
     def _start_scan(self):
         if self.scan_worker and self.scan_worker.is_alive():
             self.scan_worker.cancel()
@@ -146,13 +166,13 @@ class PhotoOrganizerApp(ctk.CTk):
         self.scan_worker.start()
 
     def _on_scan_progress(self, current, total, filepath):
-        self.after(0, lambda: self.progress_bar.update_progress(current, total, filepath))
+        self._event_queue.put(("progress", current, total, filepath))
 
     def _on_scan_done(self):
-        self.after(0, self._scan_finished)
+        self._event_queue.put(("done",))
 
     def _on_scan_error(self, filepath, error):
-        self.scan_failures.append((filepath, error))
+        self._event_queue.put(("error", filepath, error))
 
     def _scan_finished(self):
         failures = list(self.scan_failures)

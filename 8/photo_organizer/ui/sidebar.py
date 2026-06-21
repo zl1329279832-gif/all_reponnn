@@ -12,6 +12,8 @@ class ThumbnailButton(ctk.CTkFrame):
         self.on_click_cb = on_click
         self.thumb_size = thumb_size
         self._selected = False
+        self._app = master.winfo_toplevel()
+        self._bg_normal = self._get_canvas_bg()
 
         super().__init__(
             master,
@@ -23,12 +25,14 @@ class ThumbnailButton(ctk.CTkFrame):
         self.grid_propagate(False)
 
         thumb_img = None
+        self._tk_image = None
         if photo.get("thumbnail_path") and os.path.exists(photo["thumbnail_path"]):
             try:
-                thumb_img = ctk.CTkImage(
-                    light_image=Image.open(photo["thumbnail_path"]),
-                    size=(thumb_size, thumb_size),
-                )
+                from PIL import ImageTk as PIL_ImageTk
+                pil_img = Image.open(photo["thumbnail_path"])
+                pil_img.thumbnail((thumb_size, thumb_size), Image.LANCZOS)
+                self._tk_image = PIL_ImageTk.PhotoImage(pil_img)
+                thumb_img = self._tk_image
             except Exception:
                 pass
 
@@ -38,9 +42,9 @@ class ThumbnailButton(ctk.CTkFrame):
             height=thumb_size + 8,
             highlightthickness=2,
             bd=0,
-            bg="#E5E7EB",
-            highlightbackground="transparent",
-            highlightcolor="transparent",
+            bg=self._bg_normal,
+            highlightbackground=self._bg_normal,
+            highlightcolor=self._bg_normal,
             cursor="hand2",
         )
         self.canvas_bg.grid(row=0, column=0, padx=0, pady=0)
@@ -80,13 +84,23 @@ class ThumbnailButton(ctk.CTkFrame):
             self.on_click_cb(self.photo_data, modifiers={"shift"})
         return "break"
 
+    def _get_canvas_bg(self):
+        try:
+            mode = ctk.get_appearance_mode()
+            return "#1F1F1F" if mode.lower() == "dark" else "#F5F5F5"
+        except Exception:
+            return "#F5F5F5"
+
     def set_selected(self, selected: bool):
         self._selected = selected
-        color = "#3B82F6" if selected else "transparent"
-        self.canvas_bg.configure(
-            highlightbackground=color,
-            highlightcolor=color,
-        )
+        color = "#3B82F6" if selected else self._bg_normal
+        try:
+            self.canvas_bg.configure(
+                highlightbackground=color,
+                highlightcolor=color,
+            )
+        except Exception:
+            pass
 
     def is_selected(self):
         return self._selected

@@ -85,6 +85,7 @@ def scan_file(filepath: str):
         "thumbnail_path": "",
         "scanned_at": datetime.now().isoformat(),
     }
+    error_msg = None
     try:
         img = Image.open(filepath)
         photo["width"] = img.width
@@ -97,9 +98,9 @@ def scan_file(filepath: str):
         if thumb_path:
             photo["thumbnail_path"] = thumb_path
         img.close()
-    except Exception:
-        pass
-    return photo
+    except Exception as e:
+        error_msg = f"解析失败: {e}"
+    return photo, error_msg
 
 
 def scan_directory(root_dirs: list, callback=None, cancel_event=None):
@@ -139,8 +140,10 @@ class ScanWorker(threading.Thread):
                     conn.close()
                     return
                 try:
-                    photo = scan_file(filepath)
+                    photo, parse_err = scan_file(filepath)
                     self.db_module.upsert_photo(conn, photo)
+                    if parse_err and self.on_error:
+                        self.on_error(filepath, parse_err)
                 except Exception as e:
                     if self.on_error:
                         self.on_error(filepath, str(e))

@@ -16,7 +16,7 @@ step9: about to show today dialog
 step10: today dialog handled
 [今日待跟进弹窗] 找到 1 个已弹出对话框：PASS
 [新增跟进前] 蓝海文化传媒 last_contact = 2026-06-19T14:00:00
-[新增跟进后] 蓝海文化传媒 last_contact = 2026-06-21T13:33:46
+[新增跟进后] 蓝海文化传媒 last_contact = 2026-06-21T13:47:16
 [新增跟进刷新列表「最后联系」] PASS
 [CSV 导入同名合并] merged=1 created=0 tags=['Smoke测试', '传媒', '重点'] PASS
 [最近联系日期范围筛选] 已启用：2026-06-14 ～ 2026-06-21 PASS

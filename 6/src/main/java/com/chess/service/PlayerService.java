@@ -27,7 +27,7 @@ public class PlayerService {
                 player.setName(name);
                 return playerRepository.save(player);
             }
-            return player.get();
+            return player;
         }
         Player player = Player.builder()
                 .playerId(playerId)

@@ -406,6 +406,22 @@ public class ChessBoard {
         return rows;
     }
 
+    public Position getRedGeneralPos() {
+        return redGeneralPos != null ? new Position(redGeneralPos.getRow(), redGeneralPos.getCol()) : null;
+    }
+
+    public Position getBlackGeneralPos() {
+        return blackGeneralPos != null ? new Position(blackGeneralPos.getRow(), blackGeneralPos.getCol()) : null;
+    }
+
+    public void setRedGeneralPos(Position pos) {
+        this.redGeneralPos = pos != null ? new Position(pos.getRow(), pos.getCol()) : null;
+    }
+
+    public void setBlackGeneralPos(Position pos) {
+        this.blackGeneralPos = pos != null ? new Position(pos.getRow(), pos.getCol()) : null;
+    }
+
     public ChessBoard copy() {
         ChessBoard copy = new ChessBoard();
         for (int r = 0; r < ROWS; r++) {

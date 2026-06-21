@@ -149,6 +149,22 @@ class ChessApplicationIntegrationTest {
     void testHorseBlockedViaApi() throws Exception {
         Long matchId = createMatch("p1", "p2");
 
+        MakeMoveRequest cannonMove = new MakeMoveRequest();
+        cannonMove.setPlayerId("p1");
+        cannonMove.setFromRow(7);
+        cannonMove.setFromCol(1);
+        cannonMove.setToRow(8);
+        cannonMove.setToCol(1);
+        makeMove(matchId, cannonMove);
+
+        MakeMoveRequest blackMove = new MakeMoveRequest();
+        blackMove.setPlayerId("p2");
+        blackMove.setFromRow(3);
+        blackMove.setFromCol(0);
+        blackMove.setToRow(4);
+        blackMove.setToCol(0);
+        makeMove(matchId, blackMove);
+
         MakeMoveRequest request = new MakeMoveRequest();
         request.setPlayerId("p1");
         request.setFromRow(9);
@@ -167,27 +183,11 @@ class ChessApplicationIntegrationTest {
     void testCannonNoScreenViaApi() throws Exception {
         Long matchId = createMatch("p1", "p2");
 
-        MakeMoveRequest redMove = new MakeMoveRequest();
-        redMove.setPlayerId("p1");
-        redMove.setFromRow(6);
-        redMove.setFromCol(0);
-        redMove.setToRow(5);
-        redMove.setToCol(0);
-        makeMove(matchId, redMove);
-
-        MakeMoveRequest blackMove = new MakeMoveRequest();
-        blackMove.setPlayerId("p2");
-        blackMove.setFromRow(3);
-        blackMove.setFromCol(0);
-        blackMove.setToRow(4);
-        blackMove.setToCol(0);
-        makeMove(matchId, blackMove);
-
         MakeMoveRequest request = new MakeMoveRequest();
         request.setPlayerId("p1");
         request.setFromRow(7);
         request.setFromCol(1);
-        request.setToRow(3);
+        request.setToRow(2);
         request.setToCol(1);
 
         ApiResponse<MoveDto> response = makeMove(matchId, request);

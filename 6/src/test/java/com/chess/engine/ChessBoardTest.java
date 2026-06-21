@@ -47,10 +47,10 @@ class ChessBoardTest {
             }
         }
         board.setPiece(5, 4, PieceType.RED_CHARIOT);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(5, 4), new Position(5, 8), true
@@ -69,10 +69,10 @@ class ChessBoardTest {
         }
         board.setPiece(5, 0, PieceType.RED_CHARIOT);
         board.setPiece(5, 4, PieceType.RED_SOLDIER);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(5, 0), new Position(5, 8), true
@@ -93,10 +93,10 @@ class ChessBoardTest {
         }
         board.setPiece(9, 1, PieceType.RED_HORSE);
         board.setPiece(8, 1, PieceType.RED_SOLDIER);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(9, 1), new Position(7, 2), true
@@ -116,10 +116,10 @@ class ChessBoardTest {
             }
         }
         board.setPiece(9, 1, PieceType.RED_HORSE);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(9, 1), new Position(7, 2), true
@@ -138,10 +138,10 @@ class ChessBoardTest {
         }
         board.setPiece(7, 1, PieceType.RED_CANNON);
         board.setPiece(3, 1, PieceType.BLACK_SOLDIER);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(7, 1), new Position(3, 1), true
@@ -163,10 +163,10 @@ class ChessBoardTest {
         board.setPiece(7, 1, PieceType.RED_CANNON);
         board.setPiece(5, 1, PieceType.RED_SOLDIER);
         board.setPiece(3, 1, PieceType.BLACK_SOLDIER);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(7, 1), new Position(3, 1), true
@@ -189,10 +189,10 @@ class ChessBoardTest {
         board.setPiece(6, 1, PieceType.RED_SOLDIER);
         board.setPiece(5, 1, PieceType.BLACK_SOLDIER);
         board.setPiece(3, 1, PieceType.BLACK_CHARIOT);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(7, 1), new Position(3, 1), true
@@ -212,10 +212,10 @@ class ChessBoardTest {
             }
         }
         board.setPiece(7, 1, PieceType.RED_CANNON);
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
                 new Position(7, 1), new Position(4, 1), true
@@ -234,13 +234,13 @@ class ChessBoardTest {
         }
         board.setPiece(9, 4, PieceType.RED_GENERAL);
         board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setRedGeneralPos(new Position(9, 4));
+        board.setBlackGeneralPos(new Position(0, 4));
 
-        board.setPiece(5, 4, PieceType.RED_SOLDIER);
+        board.setPiece(4, 4, PieceType.RED_SOLDIER);
 
         MoveValidationResult result = board.applyMove(
-                new Position(5, 4), new Position(5, 3), true
+                new Position(4, 4), new Position(4, 3), true
         );
         assertFalse(result.isSuccess(), "将帅照面应被拒绝");
         assertTrue(result.getErrorMessage().contains("将帅") || result.getErrorMessage().contains("照面"),
@@ -256,13 +256,13 @@ class ChessBoardTest {
                 board.setPiece(r, c, null);
             }
         }
-        board.setPiece(9, 4, PieceType.RED_GENERAL);
-        board.setPiece(0, 4, PieceType.BLACK_GENERAL);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setPiece(9, 3, PieceType.RED_GENERAL);
+        board.setPiece(0, 5, PieceType.BLACK_GENERAL);
+        board.setRedGeneralPos(new Position(9, 3));
+        board.setBlackGeneralPos(new Position(0, 5));
 
         MoveValidationResult result = board.applyMove(
-                new Position(9, 4), new Position(6, 4), true
+                new Position(9, 3), new Position(9, 2), true
         );
         assertFalse(result.isSuccess(), "帅不能出九宫格");
         assertTrue(result.getErrorMessage().contains("九宫"),
@@ -293,8 +293,8 @@ class ChessBoardTest {
         board.setPiece(9, 4, PieceType.RED_GENERAL);
         board.setPiece(0, 4, PieceType.BLACK_GENERAL);
         board.setPiece(2, 4, PieceType.BLACK_SOLDIER);
-        board.redGeneralPos = new Position(9, 4);
-        board.blackGeneralPos = new Position(0, 4);
+        board.setRedGeneralPos(new Position(9, 4));
+        board.setBlackGeneralPos(new Position(0, 4));
 
         MoveValidationResult result = board.applyMove(
                 new Position(4, 4), new Position(4, 5), true

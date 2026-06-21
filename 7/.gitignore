@@ -7,6 +7,9 @@ data/
 # 备份文件
 backups/
 
+# 本地测试数据（由 generate_test_data.py 生成，不入库）
+test_data/
+
 # Python 缓存
 __pycache__/
 *.py[cod]
@@ -31,3 +34,10 @@ Thumbs.db
 # 日志
 *.log
 logs/
+
+# 启动脚本（本地可选）
+*.bat
+
+# 测试临时输出
+gui_test_output.txt
+*.output.txt

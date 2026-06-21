@@ -15,6 +15,7 @@ class PreviewPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._current_slot: Optional[SaveSlot] = None
+        self._parsed: Optional[ParsedSaveData] = None
         self._build_ui()
         self.set_slot(None)
 
@@ -115,14 +116,14 @@ class PreviewPanel(QWidget):
         self.lbl_note.setText(slot.note or "-")
 
         registry = get_parser_registry()
-        parsed: ParsedSaveData = registry.parse(slot.path)
+        self._parsed: ParsedSaveData = registry.parse(slot.path)
 
-        self.lbl_character.setText(parsed.character_name or "-")
-        self.lbl_level.setText(parsed.level or "-")
-        self.lbl_chapter.setText(parsed.chapter or "-")
-        self.lbl_playtime.setText(parsed.playtime or "-")
+        self.lbl_character.setText(self._parsed.character_name or "-")
+        self.lbl_level.setText(self._parsed.level or "-")
+        self.lbl_chapter.setText(self._parsed.chapter or "-")
+        self.lbl_playtime.setText(self._parsed.playtime or "-")
 
-        preview = "\n".join(parsed.preview_lines)
+        preview = "\n".join(self._parsed.preview_lines)
         if not preview.strip():
             preview = "[此存档为二进制格式或无法以文本方式预览]"
         self.preview_text.setPlainText(preview)

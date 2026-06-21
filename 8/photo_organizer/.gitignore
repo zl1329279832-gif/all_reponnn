@@ -1,0 +1,30 @@
+# 数据目录
+data/
+data/**/*
+!data/.gitkeep
+
+# 兼容旧路径（部分系统 fallback 到这里）
+.photo_organizer/
+
+# Python 缓存
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+.env
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

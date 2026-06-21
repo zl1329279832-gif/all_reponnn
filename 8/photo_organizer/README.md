@@ -69,8 +69,10 @@ photo_organizer/
 
 ## 数据存储位置
 
-- SQLite 数据库：`~/.photo_organizer/photos.db`
-- 缩略图缓存：`~/.photo_organizer/thumbnails/`
-- 配置文件：`~/.photo_organizer/config.json`
+Windows 下数据存储在 `%LOCALAPPDATA%\PhotoOrganizer\` 目录：
+
+- SQLite 数据库：`%LOCALAPPDATA%\PhotoOrganizer\photos.db`
+- 缩略图缓存：`%LOCALAPPDATA%\PhotoOrganizer\thumbnails\`
+- 配置文件：`%LOCALAPPDATA%\PhotoOrganizer\config.json`
 
 所有元数据仅保存在本地 SQLite 中，**不会修改原始照片文件的任何字节**。

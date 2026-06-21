@@ -49,10 +49,13 @@ def init_db():
 
 def upsert_photo(conn, photo: dict):
     existing = conn.execute(
-        "SELECT id FROM photos WHERE filepath = ?", (photo["filepath"],)
+        "SELECT id, title, notes FROM photos WHERE filepath = ?", (photo["filepath"],)
     ).fetchone()
     if existing:
+        existing = dict(existing)
         fields = {k: v for k, v in photo.items() if k != "filepath"}
+        fields["title"] = existing.get("title", "") or fields.get("title", "")
+        fields["notes"] = existing.get("notes", "") or fields.get("notes", "")
         sets = ", ".join(f"{k} = ?" for k in fields)
         values = list(fields.values()) + [photo["filepath"]]
         conn.execute(f"UPDATE photos SET {sets} WHERE filepath = ?", values)

@@ -32,10 +32,18 @@ class ProgressBar(ctk.CTkFrame):
 
     def set_done(self):
         self.progress.set(1.0)
-        self.status_label.configure(text="扫描完成")
+        self.status_label.configure(text="扫描完成", text_color="#22c55e")
         self.detail_label.configure(text="")
+
+    def set_done_with_failures(self, failure_count: int):
+        self.progress.set(1.0)
+        self.status_label.configure(
+            text=f"完成 ✗ {failure_count} 失败",
+            text_color="#ef4444",
+        )
+        self.detail_label.configure(text="详情见弹出提示")
 
     def reset(self):
         self.progress.set(0)
-        self.status_label.configure(text="就绪")
+        self.status_label.configure(text="就绪", text_color=("gray10", "gray90"))
         self.detail_label.configure(text="")

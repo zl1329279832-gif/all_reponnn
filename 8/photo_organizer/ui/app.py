@@ -31,6 +31,7 @@ class PhotoOrganizerApp(ctk.CTk):
 
         self.scan_worker = None
         self.selected_photos = []
+        self.scan_failures = []
 
         self._build_menu()
         self._build_ui()
@@ -58,15 +59,21 @@ class PhotoOrganizerApp(ctk.CTk):
             command=self._batch_op,
         ).grid(row=0, column=2, padx=4, pady=2)
 
+        self.sel_label = ctk.CTkLabel(
+            menubar, text="已选 0 张", anchor="e", width=80,
+            text_color="gray",
+        )
+        self.sel_label.grid(row=0, column=3, padx=8, pady=2, sticky="e")
+
         self.dir_label = ctk.CTkLabel(
             menubar, text=self._dir_summary(), anchor="e"
         )
-        self.dir_label.grid(row=0, column=3, padx=8, pady=2, sticky="e")
+        self.dir_label.grid(row=0, column=4, padx=8, pady=2, sticky="e")
 
         ctk.CTkButton(
             menubar, text="⚙", width=32, height=28,
             command=self._settings,
-        ).grid(row=0, column=4, padx=4, pady=2)
+        ).grid(row=0, column=5, padx=4, pady=2)
 
     def _build_ui(self):
         self.grid_rowconfigure(1, weight=1)
@@ -85,6 +92,7 @@ class PhotoOrganizerApp(ctk.CTk):
         self.sidebar = Sidebar(
             main_frame,
             on_photo_click=self._on_photo_click,
+            on_selection_change=self._on_selection_change,
             thumb_size=self.cfg.get("thumbnail_size", 120),
             width=sidebar_w,
         )
@@ -126,6 +134,7 @@ class PhotoOrganizerApp(ctk.CTk):
             self.scan_worker.cancel()
             self.scan_worker.join(timeout=2)
 
+        self.scan_failures.clear()
         self.progress_bar.reset()
         self.scan_worker = ScanWorker(
             self.cfg.get("root_dirs", []),
@@ -143,10 +152,26 @@ class PhotoOrganizerApp(ctk.CTk):
         self.after(0, self._scan_finished)
 
     def _on_scan_error(self, filepath, error):
-        pass
+        self.scan_failures.append((filepath, error))
 
     def _scan_finished(self):
-        self.progress_bar.set_done()
+        failures = list(self.scan_failures)
+        if failures:
+            self.progress_bar.set_done_with_failures(len(failures))
+            self.after(
+                100,
+                lambda: messagebox.showwarning(
+                    "扫描完成（有错误）",
+                    f"扫描完成，但有 {len(failures)} 个文件处理失败:\n\n"
+                    + "\n".join(
+                        f"• {os.path.basename(fp) if fp else '(未知)'}: {err}"
+                        for fp, err in failures[:20]
+                    )
+                    + ("\n…" if len(failures) > 20 else ""),
+                ),
+            )
+        else:
+            self.progress_bar.set_done()
         self._load_existing_photos()
 
     def _load_existing_photos(self):
@@ -159,6 +184,7 @@ class PhotoOrganizerApp(ctk.CTk):
         conn.close()
         self.current_photos = photos
         self.sidebar.load_photos(photos)
+        self._update_sel_label()
 
     def _on_search(self, keyword, date_from, date_to):
         conn = db.get_connection()
@@ -167,22 +193,35 @@ class PhotoOrganizerApp(ctk.CTk):
         self.current_photos = photos
         self.sidebar.load_photos(photos)
 
-    def _on_photo_click(self, photo):
+    def _on_photo_click(self, photo, selected):
+        self.selected_photos = list(selected) if selected else [photo]
         conn = db.get_connection()
         full = db.get_photo_by_id(conn, photo["id"])
         conn.close()
         if full:
             self.detail.show_photo(full)
-            self.selected_photos = [full]
+        self._update_sel_label()
+
+    def _on_selection_change(self, selected):
+        self.selected_photos = list(selected)
+        self._update_sel_label()
+
+    def _update_sel_label(self):
+        n = len(self.selected_photos)
+        self.sel_label.configure(
+            text=f"已选 {n} 张",
+            text_color=("gray" if n == 0 else "#3B82F6"),
+        )
 
     def _on_detail_save(self, photo):
         pass
 
     def _batch_op(self):
-        if not self.selected_photos:
-            messagebox.showinfo("提示", "请先在左侧选择照片")
+        photos = self.sidebar.get_selected_photos()
+        if not photos:
+            messagebox.showinfo("提示", "请先在左侧选择照片（支持 Ctrl/Shift 多选）")
             return
-        BatchDialog(self, self.selected_photos)
+        BatchDialog(self, photos)
 
     def _settings(self):
         dialog = SettingsDialog(self, self.cfg)

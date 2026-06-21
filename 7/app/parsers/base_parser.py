@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any, List
 
@@ -55,21 +56,27 @@ class BaseParser(ABC):
             "playtime": None,
         }
 
-        name_keys = ["name", "player_name", "character_name", "角色名", "姓名", "char_name", "hero_name"]
-        level_keys = ["level", "lv", "等级", "角色等级", "char_level"]
-        chapter_keys = ["chapter", "stage", "章节", "进度", "quest", "scenario"]
-        playtime_keys = ["playtime", "play_time", "time_played", "游玩时长", "游戏时间", "total_time", "hours"]
+        name_keys = ["name", "player_name", "character_name", "角色名", "姓名", "char_name", "hero_name", "playername"]
+        level_keys = ["level", "lv", "等级", "角色等级", "char_level", "character_level", "player_level", "lvl", "current_level"]
+        chapter_keys = ["chapter", "stage", "章节", "进度", "quest", "scenario", "current_chapter", "story_chapter", "current_stage"]
+        playtime_keys = ["playtime", "play_time", "time_played", "游玩时长", "游戏时间", "total_time", "hours", "playtime_hours", "game_time", "total_playtime"]
+
+        def _normalize(s: str) -> str:
+            return re.sub(r'[^a-z0-9\u4e00-\u9fff]', '', s.lower())
 
         def _find(data_dict: Dict[str, Any], keys: List[str]) -> Optional[str]:
+            normalized_keys = [_normalize(k) for k in keys]
             stack = [data_dict]
             while stack:
                 current = stack.pop()
                 if not isinstance(current, dict):
                     continue
                 for k, v in current.items():
-                    if isinstance(k, str) and k.lower() in [key.lower() for key in keys]:
-                        if v is not None:
-                            return str(v)
+                    if isinstance(k, str):
+                        nk = _normalize(k)
+                        if nk in normalized_keys:
+                            if v is not None:
+                                return str(v)
                     if isinstance(v, dict):
                         stack.append(v)
                     elif isinstance(v, list):

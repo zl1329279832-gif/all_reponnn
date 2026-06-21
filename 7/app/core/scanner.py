@@ -17,7 +17,12 @@ COMMON_SAVE_EXTS = [
     ".bin", ".es3", ".sav.json", ".profile",
 ]
 
-MAX_DEPTH = 6
+MAX_SAVE_DEPTH = 4
+
+
+def _is_save_dir_name(dir_name: str) -> bool:
+    lower = dir_name.lower()
+    return lower in [d.lower() for d in COMMON_SAVE_DIR_NAMES]
 
 
 def _guess_game_name(path: str) -> str:
@@ -45,7 +50,7 @@ def _is_likely_save_file(filepath: str) -> bool:
     return False
 
 
-def _scan_dir(dirpath: str, max_depth: int = MAX_DEPTH, depth: int = 0) -> List[str]:
+def _scan_save_dir(dirpath: str, max_depth: int, depth: int) -> List[str]:
     results: List[str] = []
     if depth > max_depth:
         return results
@@ -61,23 +66,57 @@ def _scan_dir(dirpath: str, max_depth: int = MAX_DEPTH, depth: int = 0) -> List[
                     results.append(os.path.abspath(full))
             elif os.path.isdir(full):
                 lower = entry.lower()
-                if lower in {"cache", "logs", "temp", "tmp", "__pycache__", "node_modules"}:
+                if lower in {"cache", "logs", "temp", "tmp", "__pycache__", "node_modules", "www", "web"}:
                     continue
-                if depth == 0 or lower in [d.lower() for d in COMMON_SAVE_DIR_NAMES] or True:
-                    results.extend(_scan_dir(full, max_depth, depth + 1))
+                results.extend(_scan_save_dir(full, max_depth, depth + 1))
         except (PermissionError, OSError):
             continue
     return results
+
+
+def _find_save_dirs(root_path: str, max_depth: int = 3, depth: int = 0) -> List[str]:
+    save_dirs: List[str] = []
+    if depth > max_depth:
+        return save_dirs
+    try:
+        entries = os.listdir(root_path)
+    except (PermissionError, OSError):
+        return save_dirs
+    for entry in entries:
+        full = os.path.join(root_path, entry)
+        try:
+            if os.path.isdir(full):
+                lower = entry.lower()
+                if lower in {"cache", "logs", "temp", "tmp", "__pycache__", "node_modules", "www", "web", "binaries", "content", "movies", "audio"}:
+                    continue
+                if _is_save_dir_name(entry):
+                    save_dirs.append(full)
+                else:
+                    save_dirs.extend(_find_save_dirs(full, max_depth, depth + 1))
+        except (PermissionError, OSError):
+            continue
+    return save_dirs
 
 
 def scan_path_for_saves(
     scan_path: ScanPath,
     progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> List[SaveSlot]:
-    found_files = _scan_dir(scan_path.path)
-    total = len(found_files)
+    root = os.path.abspath(scan_path.path)
+    all_files: List[str] = []
+
+    if _is_save_dir_name(os.path.basename(root)):
+        all_files.extend(_scan_save_dir(root, MAX_SAVE_DEPTH, 0))
+    else:
+        save_dirs = _find_save_dirs(root)
+        if not save_dirs:
+            return []
+        for sd in save_dirs:
+            all_files.extend(_scan_save_dir(sd, MAX_SAVE_DEPTH, 0))
+
+    total = len(all_files)
     slots: List[SaveSlot] = []
-    for idx, fpath in enumerate(found_files):
+    for idx, fpath in enumerate(all_files):
         try:
             stat = os.stat(fpath)
         except (OSError, FileNotFoundError):

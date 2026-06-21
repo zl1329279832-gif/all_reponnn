@@ -1,0 +1,38 @@
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 运行缓存
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+.pytest_cache/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 临时截图和调试脚本
+screenshot*.png
+screenshot*.py
+
+# PyInstaller 打包产物
+build/
+dist/
+*.spec
+
+# 音频资源（可选放 assets 目录，默认忽略）
+assets/
+*.wav
+*.mp3

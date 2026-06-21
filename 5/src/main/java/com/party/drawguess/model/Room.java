@@ -48,6 +48,10 @@ public class Room {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "room_players", joinColumns = @JoinColumn(name = "room_id"))
     @Column(name = "player_id")

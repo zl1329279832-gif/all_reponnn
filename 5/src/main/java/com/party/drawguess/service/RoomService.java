@@ -6,6 +6,9 @@ import com.party.drawguess.model.*;
 import com.party.drawguess.repository.RoomRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,7 +25,11 @@ public class RoomService {
     private final PlayerService playerService;
     private final GameService gameService;
 
-    private final Map<String, Object> roomLocks = new ConcurrentHashMap<>();
+    @Autowired
+    @Lazy
+    private RoomService self;
+
+    private static final Map<String, Object> roomLocks = new ConcurrentHashMap<>();
 
     private static final String ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     private static final int ROOM_CODE_LENGTH = 6;
@@ -49,43 +56,65 @@ public class RoomService {
         return getRoomSnapshot(room.getId());
     }
 
-    @Transactional
     public RoomSnapshotResponse joinRoom(JoinRoomRequest request) {
-        Player player = playerService.getById(request.getPlayerId());
         String roomCode = request.getRoomCode().toUpperCase();
 
         Object lock = roomLocks.computeIfAbsent(roomCode, k -> new Object());
+
         synchronized (lock) {
-            try {
-                Room room = roomRepository.findByRoomCode(roomCode)
-                        .orElseThrow(() -> new GameException(404, "房间不存在: " + roomCode));
-
-                if (room.getStatus() != RoomStatus.WAITING) {
-                    throw new GameException("房间已开始或已结束，无法加入");
-                }
-
-                if (room.getPassword() != null && !room.getPassword().isEmpty()) {
-                    if (request.getPassword() == null || !request.getPassword().equals(room.getPassword())) {
-                        throw new GameException(401, "房间密码错误");
+            int maxRetries = 3;
+            int retryCount = 0;
+            while (true) {
+                try {
+                    return self.doJoinInTransaction(request, roomCode);
+                } catch (OptimisticLockingFailureException e) {
+                    retryCount++;
+                    if (retryCount >= maxRetries) {
+                        throw new GameException(409, "加入房间冲突，请稍后重试");
+                    }
+                    log.warn("乐观锁冲突，重试加入房间: roomCode={}, retry={}", roomCode, retryCount);
+                    try {
+                        Thread.sleep(50);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new GameException(500, "加入房间被中断");
                     }
                 }
-
-                if (room.getPlayerIds().contains(player.getId())) {
-                    throw new GameException(409, "你已在该房间中");
-                }
-
-                if (room.getPlayerIds().size() >= room.getMaxPlayers()) {
-                    throw new GameException(409, "房间已满");
-                }
-
-                room.getPlayerIds().add(player.getId());
-                room = roomRepository.save(room);
-                log.info("玩家加入房间: room={}, player={}", roomCode, player.getNickname());
-                return getRoomSnapshot(room.getId());
-            } finally {
-                roomLocks.remove(roomCode);
             }
         }
+    }
+
+    @Transactional
+    public RoomSnapshotResponse doJoinInTransaction(JoinRoomRequest request, String roomCode) {
+        Player player = playerService.getById(request.getPlayerId());
+
+        Room room = roomRepository.findByRoomCode(roomCode)
+                .orElseThrow(() -> new GameException(404, "房间不存在: " + roomCode));
+
+        if (room.getStatus() != RoomStatus.WAITING) {
+            throw new GameException("房间已开始或已结束，无法加入");
+        }
+
+        if (room.getPassword() != null && !room.getPassword().isEmpty()) {
+            if (request.getPassword() == null || !request.getPassword().equals(room.getPassword())) {
+                throw new GameException(401, "房间密码错误");
+            }
+        }
+
+        if (room.getPlayerIds().contains(player.getId())) {
+            throw new GameException(409, "你已在该房间中");
+        }
+
+        if (room.getPlayerIds().size() >= room.getMaxPlayers()) {
+            throw new GameException(409, "房间已满");
+        }
+
+        room.getPlayerIds().add(player.getId());
+        room = roomRepository.save(room);
+        log.info("玩家加入房间: room={}, player={}, 人数={}/{}",
+                roomCode, player.getNickname(),
+                room.getPlayerIds().size(), room.getMaxPlayers());
+        return getRoomSnapshot(room.getId());
     }
 
     @Transactional

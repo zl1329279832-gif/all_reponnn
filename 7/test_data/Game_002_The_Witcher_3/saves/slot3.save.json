@@ -1,0 +1,19 @@
+{
+  "player_name": "刺客伊芙琳",
+  "character_level": 2,
+  "current_chapter": "第三章: 王城危机",
+  "playtime_hours": "182小时6分",
+  "inventory": {
+    "gold": 2080,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 273,
+    "mp": 174
+  },
+  "last_save_time": 1782010151.996547
+}

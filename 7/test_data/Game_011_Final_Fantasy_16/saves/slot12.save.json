@@ -1,0 +1,19 @@
+{
+  "player_name": "牧师塞拉斯",
+  "character_level": 73,
+  "current_chapter": "第二章: 迷雾森林",
+  "playtime_hours": "137小时41分",
+  "inventory": {
+    "gold": 6362,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 347,
+    "mp": 76
+  },
+  "last_save_time": 1782010153.0490892
+}

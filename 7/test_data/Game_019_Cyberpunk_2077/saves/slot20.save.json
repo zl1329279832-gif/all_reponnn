@@ -1,0 +1,19 @@
+{
+  "player_name": "魔法师梅林",
+  "character_level": 31,
+  "current_chapter": "第五章: 最终决战",
+  "playtime_hours": "85小时5分",
+  "inventory": {
+    "gold": 7225,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 182,
+    "mp": 298
+  },
+  "last_save_time": 1782010153.868133
+}

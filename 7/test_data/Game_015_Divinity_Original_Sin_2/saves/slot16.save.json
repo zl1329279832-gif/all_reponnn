@@ -1,0 +1,19 @@
+{
+  "player_name": "骑士兰斯洛特",
+  "character_level": 11,
+  "current_chapter": "第一章: 启程",
+  "playtime_hours": "80小时3分",
+  "inventory": {
+    "gold": 2130,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 145,
+    "mp": 190
+  },
+  "last_save_time": 1782010153.485768
+}

@@ -1,0 +1,19 @@
+{
+  "player_name": "勇者阿瑞斯",
+  "character_level": 52,
+  "current_chapter": "第三章: 王城危机",
+  "playtime_hours": "113小时54分",
+  "inventory": {
+    "gold": 3499,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 486,
+    "mp": 289
+  },
+  "last_save_time": 1782010153.1416445
+}

@@ -1,0 +1,19 @@
+{
+  "player_name": "骑士兰斯洛特",
+  "character_level": 10,
+  "current_chapter": "第五章: 最终决战",
+  "playtime_hours": "72小时40分",
+  "inventory": {
+    "gold": 7496,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 377,
+    "mp": 178
+  },
+  "last_save_time": 1782010152.7901635
+}

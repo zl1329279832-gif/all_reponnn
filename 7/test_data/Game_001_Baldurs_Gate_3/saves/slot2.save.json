@@ -1,0 +1,19 @@
+{
+  "player_name": "魔法师梅林",
+  "character_level": 26,
+  "current_chapter": "第二章: 迷雾森林",
+  "playtime_hours": "134小时14分",
+  "inventory": {
+    "gold": 5215,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 120,
+    "mp": 214
+  },
+  "last_save_time": 1782010151.914449
+}

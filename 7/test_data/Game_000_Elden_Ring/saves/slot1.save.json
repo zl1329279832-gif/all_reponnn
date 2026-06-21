@@ -1,0 +1,19 @@
+{
+  "player_name": "勇者阿瑞斯",
+  "character_level": 25,
+  "current_chapter": "第一章: 启程",
+  "playtime_hours": "121小时52分",
+  "inventory": {
+    "gold": 7760,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 468,
+    "mp": 183
+  },
+  "last_save_time": 1782010151.8293853
+}

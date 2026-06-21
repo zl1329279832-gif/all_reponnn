@@ -1,0 +1,19 @@
+{
+  "player_name": "魔法师梅林",
+  "character_level": 14,
+  "current_chapter": "第三章: 王城危机",
+  "playtime_hours": "66小时8分",
+  "inventory": {
+    "gold": 6466,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 429,
+    "mp": 144
+  },
+  "last_save_time": 1782010152.5976138
+}

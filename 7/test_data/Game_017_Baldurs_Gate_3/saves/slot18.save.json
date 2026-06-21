@@ -1,0 +1,19 @@
+{
+  "player_name": "牧师塞拉斯",
+  "character_level": 68,
+  "current_chapter": "第三章: 王城危机",
+  "playtime_hours": "6小时0分",
+  "inventory": {
+    "gold": 3625,
+    "items": [
+      "sword",
+      "shield",
+      "potion"
+    ]
+  },
+  "stats": {
+    "hp": 450,
+    "mp": 82
+  },
+  "last_save_time": 1782010153.6741388
+}

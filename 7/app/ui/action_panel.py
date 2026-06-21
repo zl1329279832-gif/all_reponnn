@@ -1,6 +1,6 @@
 from typing import Optional, List
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
@@ -13,6 +13,8 @@ from ..core.models import SaveSlot, Backup
 
 
 class ActionPanel(QWidget):
+    backup_compare_requested = pyqtSignal(object)
+
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._current_slot: Optional[SaveSlot] = None
@@ -62,6 +64,14 @@ class ActionPanel(QWidget):
         self.backup_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         layout.addWidget(self.backup_list, 1)
 
+        compare_bar = QHBoxLayout()
+        compare_bar.setSpacing(6)
+        self.btn_compare_backup = QPushButton("🔍  与当前对比")
+        self.btn_compare_backup.setToolTip("将选中的备份与左侧选中的当前存档对比")
+        self.btn_compare_backup.clicked.connect(self._on_compare_backup)
+        compare_bar.addWidget(self.btn_compare_backup, 1)
+        layout.addLayout(compare_bar)
+
         del_bar = QHBoxLayout()
         del_bar.setSpacing(6)
         self.btn_delete_backup = QPushButton("删除备份")
@@ -83,6 +93,7 @@ class ActionPanel(QWidget):
         self.btn_restore.setEnabled(False)
         self.btn_rename.setEnabled(enabled)
         self.btn_delete_backup.setEnabled(False)
+        self.btn_compare_backup.setEnabled(False)
         self.backup_list.clear()
         if slot is not None:
             self._reload_backups()
@@ -109,8 +120,10 @@ class ActionPanel(QWidget):
 
     def _on_backup_selected(self) -> None:
         has = self.backup_list.currentItem() is not None and self.backup_list.currentItem().data(Qt.ItemDataRole.UserRole) is not None
-        self.btn_restore.setEnabled(has and self._current_slot is not None)
+        has_slot = self._current_slot is not None
+        self.btn_restore.setEnabled(has and has_slot)
         self.btn_delete_backup.setEnabled(has)
+        self.btn_compare_backup.setEnabled(has and has_slot)
 
     def _on_backup(self) -> None:
         if self._current_slot is None:
@@ -153,6 +166,12 @@ class ActionPanel(QWidget):
             self.parent_widget_slot_reloaded()
         except Exception as e:
             QMessageBox.critical(self, "还原失败", f"还原存档时出错:\n{e}")
+
+    def _on_compare_backup(self) -> None:
+        backup = self._selected_backup()
+        if backup is None or self._current_slot is None:
+            return
+        self.backup_compare_requested.emit((self._current_slot, backup))
 
     def _on_rename(self) -> None:
         if self._current_slot is None:

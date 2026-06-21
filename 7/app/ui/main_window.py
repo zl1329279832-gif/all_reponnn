@@ -1,18 +1,20 @@
-from typing import Optional
+from typing import Optional, Tuple, List
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QSplitter, QStatusBar,
-    QMessageBox,
+    QMessageBox, QStackedWidget,
 )
 
 from .save_list import SaveListPanel
 from .preview_panel import PreviewPanel
 from .action_panel import ActionPanel
+from .compare_panel import ComparePanel
 from ..core import database as db
 from ..core import scanner
-from ..core.models import SaveSlot
+from ..core.models import SaveSlot, Backup
+from ..core.compare import CompareSource
 
 
 class ScanWorker(QThread):
@@ -53,11 +55,18 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
         self.save_list = SaveListPanel()
+
+        self.center_stack = QStackedWidget()
         self.preview_panel = PreviewPanel()
+        self.compare_panel = ComparePanel()
+        self.center_stack.addWidget(self.preview_panel)
+        self.center_stack.addWidget(self.compare_panel)
+        self.center_stack.setCurrentWidget(self.preview_panel)
+
         self.action_panel = ActionPanel()
 
         splitter.addWidget(self.save_list)
-        splitter.addWidget(self.preview_panel)
+        splitter.addWidget(self.center_stack)
         splitter.addWidget(self.action_panel)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 4)
@@ -72,9 +81,41 @@ class MainWindow(QMainWindow):
 
         self.save_list.selection_model().currentChanged.connect(self._on_selection_changed)
         self.save_list.btn_rescan.clicked.connect(self._on_rescan)
+        self.save_list.compare_requested.connect(self._on_slots_compare_requested)
+        self.action_panel.backup_compare_requested.connect(self._on_backup_compare_requested)
+        self.compare_panel.back_to_preview_requested.connect(self._on_back_to_preview)
 
     def _on_selection_changed(self, current, _previous) -> None:
         slot: Optional[SaveSlot] = current.data(Qt.ItemDataRole.UserRole) if current.isValid() else None
+        selected = self.save_list.selected_slots()
+        if len(selected) <= 1:
+            if self.center_stack.currentWidget() is not self.preview_panel:
+                self.compare_panel.clear()
+                self.center_stack.setCurrentWidget(self.preview_panel)
+        self.preview_panel.set_slot(slot)
+        self.action_panel.set_slot(slot)
+
+    def _on_slots_compare_requested(self, slots: List[SaveSlot]) -> None:
+        if len(slots) != 2:
+            return
+        src_a = CompareSource.from_slot(slots[0])
+        src_b = CompareSource.from_slot(slots[1])
+        ok = self.compare_panel.compare(src_a, src_b)
+        if ok:
+            self.center_stack.setCurrentWidget(self.compare_panel)
+
+    def _on_backup_compare_requested(self, data: Tuple[SaveSlot, Backup]) -> None:
+        slot, backup = data
+        src_a = CompareSource.from_slot(slot)
+        src_b = CompareSource.from_backup(backup, game_name=slot.game_name)
+        ok = self.compare_panel.compare(src_a, src_b)
+        if ok:
+            self.center_stack.setCurrentWidget(self.compare_panel)
+
+    def _on_back_to_preview(self) -> None:
+        self.compare_panel.clear()
+        self.center_stack.setCurrentWidget(self.preview_panel)
+        slot = self.save_list.current_slot()
         self.preview_panel.set_slot(slot)
         self.action_panel.set_slot(slot)
 

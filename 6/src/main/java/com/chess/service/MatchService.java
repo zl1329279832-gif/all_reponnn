@@ -15,6 +15,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,15 +42,21 @@ public class MatchService {
 
         ChessBoard board = new ChessBoard();
 
-        Match match = Match.builder()
+        Match.MatchBuilder builder = Match.builder()
                 .redPlayerId(request.getRedPlayerId())
                 .blackPlayerId(request.getBlackPlayerId())
                 .status(Match.MatchStatus.IN_PROGRESS)
                 .currentTurn(0)
                 .nextTurnPlayerId(request.getRedPlayerId())
-                .boardSnapshot(board.toSnapshot())
-                .build();
+                .boardSnapshot(board.toSnapshot());
 
+        if (request.getBaseSeconds() != null && request.getBaseSeconds() > 0) {
+            builder.baseSeconds(request.getBaseSeconds())
+                    .redTimeLeft(request.getBaseSeconds())
+                    .blackTimeLeft(request.getBaseSeconds());
+        }
+
+        Match match = builder.build();
         match = matchRepository.save(match);
 
         MatchDto dto = toMatchDto(match, board, red, black);
@@ -84,6 +91,21 @@ public class MatchService {
         }
 
         boolean isRedTurn = request.getPlayerId().equals(match.getRedPlayerId());
+        LocalDateTime now = LocalDateTime.now();
+        long elapsedSeconds = 0;
+
+        if (match.getBaseSeconds() != null && match.getBaseSeconds() > 0) {
+            LocalDateTime startTime = match.getLastMoveAt() != null ? match.getLastMoveAt() : match.getCreatedAt();
+            elapsedSeconds = Duration.between(startTime, now).getSeconds();
+            if (elapsedSeconds < 0) {
+                elapsedSeconds = 0;
+            }
+
+            ApiResponse<MoveDto> timeoutResult = checkAndApplyTimeout(match, isRedTurn, now, elapsedSeconds);
+            if (timeoutResult != null) {
+                return timeoutResult;
+            }
+        }
 
         ChessBoard board = ChessBoard.fromSnapshot(match.getBoardSnapshot());
 
@@ -116,6 +138,11 @@ public class MatchService {
         match.setNextTurnPlayerId(isRedTurn ? match.getBlackPlayerId() : match.getRedPlayerId());
         match.setBoardSnapshot(boardAfter.toSnapshot());
 
+        if (match.getBaseSeconds() != null && match.getBaseSeconds() > 0) {
+            deductTime(match, isRedTurn, elapsedSeconds);
+            match.setLastMoveAt(now);
+        }
+
         boolean redGeneralCaptured = boardAfter.isGeneralCaptured(true);
         boolean blackGeneralCaptured = boardAfter.isGeneralCaptured(false);
 
@@ -143,6 +170,51 @@ public class MatchService {
         Player player = playerService.getPlayer(request.getPlayerId());
         MoveDto moveDto = toMoveDto(move, player);
         return ApiResponse.success(moveDto);
+    }
+
+    private ApiResponse<MoveDto> checkAndApplyTimeout(Match match, boolean isRedTurn, LocalDateTime now, long elapsedSeconds) {
+        int currentTimeLeft = isRedTurn
+                ? (match.getRedTimeLeft() != null ? match.getRedTimeLeft() : 0)
+                : (match.getBlackTimeLeft() != null ? match.getBlackTimeLeft() : 0);
+
+        int newTimeLeft = (int) (currentTimeLeft - elapsedSeconds);
+
+        if (newTimeLeft <= 0) {
+            if (isRedTurn) {
+                match.setRedTimeLeft(0);
+            } else {
+                match.setBlackTimeLeft(0);
+            }
+            match.setStatus(isRedTurn ? Match.MatchStatus.BLACK_WIN : Match.MatchStatus.RED_WIN);
+            match.setEndedAt(now);
+            match.setWinnerPlayerId(isRedTurn ? match.getBlackPlayerId() : match.getRedPlayerId());
+
+            try {
+                matchRepository.save(match);
+            } catch (OptimisticLockingFailureException e) {
+                return ApiResponse.error("发生并发冲突，请重试");
+            }
+
+            eloService.updateRatings(
+                    match.getRedPlayerId(),
+                    match.getBlackPlayerId(),
+                    match.getWinnerPlayerId()
+            );
+
+            String loser = isRedTurn ? "红方" : "黑方";
+            return ApiResponse.error(loser + "时间耗尽，对局结束");
+        }
+        return null;
+    }
+
+    private void deductTime(Match match, boolean isRedTurn, long elapsedSeconds) {
+        if (isRedTurn) {
+            int current = match.getRedTimeLeft() != null ? match.getRedTimeLeft() : 0;
+            match.setRedTimeLeft(Math.max(0, (int) (current - elapsedSeconds)));
+        } else {
+            int current = match.getBlackTimeLeft() != null ? match.getBlackTimeLeft() : 0;
+            match.setBlackTimeLeft(Math.max(0, (int) (current - elapsedSeconds)));
+        }
     }
 
     public ApiResponse<MatchDto> getMatch(Long matchId) {
@@ -195,6 +267,15 @@ public class MatchService {
         snapshot.put("blackPlayerId", match.getBlackPlayerId());
         snapshot.put("blackPlayerName", black != null ? black.getName() : null);
 
+        if (match.getBaseSeconds() != null && match.getBaseSeconds() > 0) {
+            snapshot.put("baseSeconds", match.getBaseSeconds());
+            snapshot.put("redTimeLeft", match.getRedTimeLeft());
+            snapshot.put("blackTimeLeft", match.getBlackTimeLeft());
+            snapshot.put("timerEnabled", true);
+        } else {
+            snapshot.put("timerEnabled", false);
+        }
+
         return ApiResponse.success(snapshot);
     }
 
@@ -213,6 +294,9 @@ public class MatchService {
                 .winnerPlayerId(match.getWinnerPlayerId())
                 .fen(board != null ? board.toFen() : null)
                 .boardDisplay(board != null ? board.getBoardDisplay() : null)
+                .baseSeconds(match.getBaseSeconds())
+                .redTimeLeft(match.getRedTimeLeft())
+                .blackTimeLeft(match.getBlackTimeLeft())
                 .build();
     }
 

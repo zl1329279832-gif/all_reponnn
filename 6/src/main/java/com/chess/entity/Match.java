@@ -56,6 +56,14 @@ public class Match {
 
     private String winnerPlayerId;
 
+    private Integer baseSeconds;
+
+    private Integer redTimeLeft;
+
+    private Integer blackTimeLeft;
+
+    private LocalDateTime lastMoveAt;
+
     @PrePersist
     protected void onCreate() {
         if (createdAt == null) {

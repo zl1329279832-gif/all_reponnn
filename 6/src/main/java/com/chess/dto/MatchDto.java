@@ -27,4 +27,7 @@ public class MatchDto {
     private String winnerPlayerId;
     private String fen;
     private List<String> boardDisplay;
+    private Integer baseSeconds;
+    private Integer redTimeLeft;
+    private Integer blackTimeLeft;
 }

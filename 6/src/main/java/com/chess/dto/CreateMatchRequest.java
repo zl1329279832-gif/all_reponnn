@@ -1,5 +1,6 @@
 package com.chess.dto;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -15,4 +16,7 @@ public class CreateMatchRequest {
     private String redPlayerName;
 
     private String blackPlayerName;
+
+    @Min(value = 1, message = "baseSeconds 必须大于 0")
+    private Integer baseSeconds;
 }

@@ -16,6 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -409,5 +410,114 @@ class ChessApplicationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isBadRequest());
+    }
+
+    private Long createMatchWithTimer(String redId, String blackId, int baseSeconds) throws Exception {
+        CreateMatchRequest request = new CreateMatchRequest();
+        request.setRedPlayerId(redId);
+        request.setBlackPlayerId(blackId);
+        request.setRedPlayerName("红方玩家");
+        request.setBlackPlayerName("黑方玩家");
+        request.setBaseSeconds(baseSeconds);
+
+        MvcResult result = mockMvc.perform(post("/api/matches")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andReturn();
+
+        ApiResponse<?> response = objectMapper.readValue(
+                result.getResponse().getContentAsString(), ApiResponse.class
+        );
+        Map<String, Object> data = (Map<String, Object>) response.getData();
+        return ((Number) data.get("id")).longValue();
+    }
+
+    @Test
+    @DisplayName("创建对局 - 带计时，验证初始时间字段")
+    void testCreateMatchWithTimer() throws Exception {
+        Long matchId = createMatchWithTimer("t_red", "t_black", 600);
+
+        mockMvc.perform(get("/api/matches/" + matchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.baseSeconds").value(600))
+                .andExpect(jsonPath("$.data.redTimeLeft").value(600))
+                .andExpect(jsonPath("$.data.blackTimeLeft").value(600));
+
+        mockMvc.perform(get("/api/matches/" + matchId + "/snapshot"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.timerEnabled").value(true))
+                .andExpect(jsonPath("$.data.baseSeconds").value(600))
+                .andExpect(jsonPath("$.data.redTimeLeft").value(600))
+                .andExpect(jsonPath("$.data.blackTimeLeft").value(600));
+    }
+
+    @Test
+    @DisplayName("创建对局 - 不带 baseSeconds 时计时不启用，向后兼容")
+    void testCreateMatchNoTimerBackwardCompatible() throws Exception {
+        Long matchId = createMatch("compat_red", "compat_black");
+
+        mockMvc.perform(get("/api/matches/" + matchId + "/snapshot"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.timerEnabled").value(false))
+                .andExpect(jsonPath("$.data.baseSeconds").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("走子 - 红方时间耗尽判负，Elo 照常更新，不能再 POST move")
+    void testTimeoutLosesGame() throws Exception {
+        Long matchId = createMatchWithTimer("to_red", "to_black", 10);
+
+        Match match = matchRepository.findById(matchId).orElseThrow();
+        match.setLastMoveAt(LocalDateTime.now().minusSeconds(20));
+        match.setRedTimeLeft(5);
+        matchRepository.save(match);
+
+        MakeMoveRequest request = new MakeMoveRequest();
+        request.setPlayerId("to_red");
+        request.setFromRow(7);
+        request.setFromCol(1);
+        request.setToRow(7);
+        request.setToCol(4);
+
+        ApiResponse<MoveDto> response = makeMove(matchId, request);
+        assertEquals(400, response.getCode());
+        assertTrue(response.getMessage().contains("时间耗尽"),
+                "错误信息应提到时间耗尽，实际是: " + response.getMessage());
+
+        mockMvc.perform(get("/api/matches/" + matchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("BLACK_WIN"))
+                .andExpect(jsonPath("$.data.winnerPlayerId").value("to_black"))
+                .andExpect(jsonPath("$.data.redTimeLeft").value(0));
+
+        MakeMoveRequest another = new MakeMoveRequest();
+        another.setPlayerId("to_black");
+        another.setFromRow(2);
+        another.setFromCol(1);
+        another.setToRow(2);
+        another.setToCol(4);
+        ApiResponse<MoveDto> afterEnd = makeMove(matchId, another);
+        assertEquals(400, afterEnd.getCode());
+        assertTrue(afterEnd.getMessage().contains("对局已结束"));
+    }
+
+    @Test
+    @DisplayName("GET 快照 - 带计时对局带剩余时间与当前行棋方")
+    void testTimerInSnapshot() throws Exception {
+        Long matchId = createMatchWithTimer("ts_red", "ts_black", 300);
+
+        mockMvc.perform(get("/api/matches/" + matchId + "/snapshot"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.timerEnabled").value(true))
+                .andExpect(jsonPath("$.data.nextTurnPlayerId").value("ts_red"))
+                .andExpect(jsonPath("$.data.redTimeLeft").value(300))
+                .andExpect(jsonPath("$.data.blackTimeLeft").value(300));
     }
 }

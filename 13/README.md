@@ -68,9 +68,20 @@ java -jar target/meeting-room-booking-1.0.0.jar
 | GET | `/api/reservations` | 查询预定列表，支持 `roomId`, `floor`, `minCapacity`, `startDate`, `endDate` |
 | GET | `/api/reservations/{id}` | 查询单个预定 |
 | GET | `/api/reservations/series/{seriesId}` | 查询周期预定系列的所有实例 |
+| GET | `/api/reservations/{id}/audits` | 查询单个预定的审计记录（签到、释放、取消） |
 | POST | `/api/reservations` | 创建预定（单次或周期） |
+| POST | `/api/reservations/{id}/check-in` | 签到（开始时间起 15 分钟窗口内有效），body 示例 `{"operator":"张三"}` |
 | DELETE | `/api/reservations/{id}` | 取消单个预定（即使是周期预定的一天，不影响其他天） |
 | DELETE | `/api/reservations/series/{seriesId}` | 取消整个周期预定系列 |
+
+### 签到与超时释放
+
+- **签到窗口**：预定开始时间起 **15 分钟**内可签到，过时视为爽约
+- **自动释放**：每分钟由定时任务扫描，超过签到窗口仍未签到的预定被自动标记为 `RELEASED`，时段释放给其他人
+- **冲突排除**：冲突检测会排除已释放（`RELEASED`）的预定，释放后的时段可以被重新预定
+- **审计记录**：签到（`CHECK_IN`）、超时释放（`RELEASE_TIMEOUT`）、取消（`CANCEL`）都会写入 `reservation_audits` 表，可通过 `/api/reservations/{id}/audits` 查询
+- **状态字段**：`ReservationResponse` 返回体含 `status`（NORMAL / CHECKED_IN / RELEASED）、`checkedIn`、`released`、`checkInTime`
+- **周期系列**：签到和释放只对单条实例生效，取消单天的旧逻辑保持不变
 
 ---
 

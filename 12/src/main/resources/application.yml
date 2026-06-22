@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: instant-delivery
+  profiles:
+    active: h2
+  jackson:
+    time-zone: GMT+8
+    date-format: yyyy-MM-dd HH:mm:ss
+
+server:
+  port: 8080
+
+delivery:
+  grid-size: 0.01
+  max-orders-per-rider: 10

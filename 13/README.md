@@ -486,26 +486,44 @@ SQLite 数据库文件位于 `./data/meeting_room.db`，可直接拷贝备份。
 
 使用 Flyway 管理数据库迁移，迁移脚本位于 `src/main/resources/db/migration/`。
 
+## 分层约定
+
+| 层 | 职责 |
+|---|---|
+| **Controller** | 只做参数校验（`@Valid`）和统一响应封装（`ApiResponse<T>`），不写业务逻辑、不写 SQL |
+| **Service** | 放所有领域规则和 SQL/JPQL。通过注入 `EntityManager` 写动态查询，所有 `DataAccessException` 被捕获后转成 `BusinessException`（400/404/409），确保不被全局处理器兜成 500 |
+| **Repository** | 只继承 `JpaRepository` 做基础 CRUD（`findById`, `save`, `saveAll`, `existsById`, `deleteById`, `findAll`），**不含任何 @Query** |
+| **Entity** | 纯数据模型 + 自定义 `AttributeConverter`，统一类型序列化 |
+| **GlobalExceptionHandler** | 仅兜底系统异常（如 JSON 解析错、参数类型错），业务异常统一走 `BusinessException` |
+
+核心 SQL 和规则集中在 [ReservationService.java](file:///c:/Users/13292/Desktop/solocode/all_reponnn/13/src/main/java/com/meetingroom/service/ReservationService.java)：
+- 冲突检测（含前后 15 分钟缓冲）：`checkConflict()` 用 EntityManager 写 JPQL，查到冲突即抛 `BusinessException.conflict()`
+- 4 小时限制 / 跨午夜校验 / 时段模板校验：`validateBusinessRules()`
+- 周期预定 8 周展开 + 部分冲突周跳过：`createRecurringReservations()`
+- 取消单天不影响系列：`cancelSingle()` 只软删当前 ID，`cancelSeries()` 按 seriesId 批量软删
+- 按楼层、容量、日期范围复合过滤：`findByFilters()` 在 Service 层拼接 JPQL + 二次内存过滤
+
 ## 项目结构
 
 ```
 src/main/java/com/meetingroom/
-├── MeetingRoomBookingApplication.java    # 启动类
+├── MeetingRoomBookingApplication.java     # 启动类
 ├── controller/
-│   ├── MeetingRoomController.java        # 会议室接口（参数校验+响应封装）
-│   └── ReservationController.java        # 预定接口（参数校验+响应封装）
+│   ├── MeetingRoomController.java         # 参数校验 + 响应封装
+│   └── ReservationController.java         # 参数校验 + 响应封装
 ├── service/
-│   ├── MeetingRoomService.java           # 会议室业务逻辑+SQL
-│   └── ReservationService.java           # 预定业务逻辑+SQL（核心规则）
+│   ├── MeetingRoomService.java            # 会议室业务 + JPQL（楼层/容量过滤）
+│   └── ReservationService.java            # 核心领域规则 + JPQL（冲突检测、周期展开、筛选）
 ├── repository/
-│   ├── MeetingRoomRepository.java
-│   └── ReservationRepository.java
+│   ├── MeetingRoomRepository.java         # 纯基础 CRUD，无 @Query
+│   └── ReservationRepository.java         # 纯基础 CRUD，无 @Query
 ├── entity/
 │   ├── MeetingRoom.java
 │   ├── Reservation.java
 │   ├── TimeSlot.java
-│   ├── TimeSlotListConverter.java
-│   └── EquipmentListConverter.java
+│   ├── LocalDateTimeConverter.java        # LocalDateTime <-> "yyyy-MM-dd HH:mm:ss" TEXT，autoApply=true
+│   ├── TimeSlotListConverter.java         # List<TimeSlot> <-> JSON TEXT
+│   └── EquipmentListConverter.java        # List<String> <-> 逗号分隔 TEXT
 ├── dto/
 │   ├── ApiResponse.java
 │   ├── CreateMeetingRoomRequest.java
@@ -515,6 +533,6 @@ src/main/java/com/meetingroom/
 │   ├── ReservationResponse.java
 │   └── TimeSlotDTO.java
 └── exception/
-    ├── BusinessException.java
-    └── GlobalExceptionHandler.java       # 全局异常处理，返回可读业务错误
+    ├── BusinessException.java             # 带 code 的业务异常（400/404/409）
+    └── GlobalExceptionHandler.java        # 先接 BusinessException 返回指定 HTTP 码，最后才兜底 500
 ```

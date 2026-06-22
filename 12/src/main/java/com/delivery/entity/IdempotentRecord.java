@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Data
 @Entity
 @Table(name = "idempotent_record", indexes = {
-        @Index(name = "idx_request_key", columnList = "requestKey", unique = true)
+        @Index(name = "idx_idem_request_key", columnList = "requestKey", unique = true)
 })
 public class IdempotentRecord {
 

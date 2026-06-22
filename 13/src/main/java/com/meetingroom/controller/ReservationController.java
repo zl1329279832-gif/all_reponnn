@@ -1,7 +1,9 @@
 package com.meetingroom.controller;
 
 import com.meetingroom.dto.ApiResponse;
+import com.meetingroom.dto.CheckInRequest;
 import com.meetingroom.dto.CreateReservationRequest;
+import com.meetingroom.dto.ReservationAuditResponse;
 import com.meetingroom.dto.ReservationResponse;
 import com.meetingroom.service.ReservationService;
 import jakarta.validation.Valid;
@@ -38,6 +40,12 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.success(reservation));
     }
 
+    @GetMapping("/{id}/audits")
+    public ResponseEntity<ApiResponse<List<ReservationAuditResponse>>> getAudits(@PathVariable Long id) {
+        List<ReservationAuditResponse> audits = reservationService.findAuditsByReservationId(id);
+        return ResponseEntity.ok(ApiResponse.success(audits));
+    }
+
     @GetMapping("/series/{seriesId}")
     public ResponseEntity<ApiResponse<List<ReservationResponse>>> getBySeriesId(
             @PathVariable String seriesId) {
@@ -52,15 +60,29 @@ public class ReservationController {
         return ResponseEntity.ok(ApiResponse.success(reservations));
     }
 
+    @PostMapping("/{id}/check-in")
+    public ResponseEntity<ApiResponse<ReservationResponse>> checkIn(
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) CheckInRequest request) {
+        String operator = (request != null && request.getOperator() != null && !request.getOperator().isBlank())
+                ? request.getOperator() : "SYSTEM";
+        ReservationResponse reservation = reservationService.checkIn(id, operator);
+        return ResponseEntity.ok(ApiResponse.success(reservation));
+    }
+
     @DeleteMapping("/{id}")
-    public ResponseEntity<ApiResponse<Void>> cancelSingle(@PathVariable Long id) {
-        reservationService.cancelSingle(id);
+    public ResponseEntity<ApiResponse<Void>> cancelSingle(
+            @PathVariable Long id,
+            @RequestParam(required = false) String operator) {
+        reservationService.cancelSingle(id, operator == null || operator.isBlank() ? "SYSTEM" : operator);
         return ResponseEntity.ok(ApiResponse.success());
     }
 
     @DeleteMapping("/series/{seriesId}")
-    public ResponseEntity<ApiResponse<Void>> cancelSeries(@PathVariable String seriesId) {
-        reservationService.cancelSeries(seriesId);
+    public ResponseEntity<ApiResponse<Void>> cancelSeries(
+            @PathVariable String seriesId,
+            @RequestParam(required = false) String operator) {
+        reservationService.cancelSeries(seriesId, operator == null || operator.isBlank() ? "SYSTEM" : operator);
         return ResponseEntity.ok(ApiResponse.success());
     }
 }

@@ -29,6 +29,13 @@ public class ReservationResponse {
     private String recurringType;
     private Boolean cancelled;
 
+    private String status;
+    private Boolean checkedIn;
+    private Boolean released;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime checkInTime;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
 

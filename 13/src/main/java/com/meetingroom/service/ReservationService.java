@@ -2,11 +2,14 @@ package com.meetingroom.service;
 
 import com.meetingroom.dto.CreateReservationRequest;
 import com.meetingroom.dto.MeetingRoomResponse;
+import com.meetingroom.dto.ReservationAuditResponse;
 import com.meetingroom.dto.ReservationResponse;
 import com.meetingroom.entity.MeetingRoom;
 import com.meetingroom.entity.Reservation;
+import com.meetingroom.entity.ReservationAudit;
 import com.meetingroom.entity.TimeSlot;
 import com.meetingroom.exception.BusinessException;
+import com.meetingroom.repository.ReservationAuditRepository;
 import com.meetingroom.repository.ReservationRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -36,8 +39,14 @@ public class ReservationService {
     private static final int BUFFER_MINUTES = 15;
     private static final int MAX_DURATION_HOURS = 4;
     private static final int RECURRING_WEEKS = 8;
+    private static final int CHECKIN_WINDOW_MINUTES = 15;
+
+    public static final String ACTION_CHECK_IN = "CHECK_IN";
+    public static final String ACTION_RELEASE_TIMEOUT = "RELEASE_TIMEOUT";
+    public static final String ACTION_CANCEL = "CANCEL";
 
     private final ReservationRepository reservationRepository;
+    private final ReservationAuditRepository auditRepository;
     private final MeetingRoomService meetingRoomService;
 
     @PersistenceContext
@@ -146,6 +155,21 @@ public class ReservationService {
         }
     }
 
+    @Transactional(readOnly = true)
+    public List<ReservationAuditResponse> findAuditsByReservationId(Long reservationId) {
+        try {
+            List<ReservationAudit> audits = entityManager.createQuery(
+                            "SELECT a FROM ReservationAudit a WHERE a.reservationId = :reservationId ORDER BY a.createdAt ASC",
+                            ReservationAudit.class)
+                    .setParameter("reservationId", reservationId)
+                    .getResultList();
+            return audits.stream().map(this::toAuditResponse).collect(Collectors.toList());
+        } catch (DataAccessException e) {
+            log.error("查询审计记录失败 reservationId={}", reservationId, e);
+            throw BusinessException.badRequest("查询审计记录失败: " + e.getMessage());
+        }
+    }
+
     @Transactional
     public List<ReservationResponse> create(CreateReservationRequest request) {
         MeetingRoom room = meetingRoomService.getRoomEntity(request.getRoomId());
@@ -159,7 +183,89 @@ public class ReservationService {
     }
 
     @Transactional
-    public void cancelSingle(Long id) {
+    public ReservationResponse checkIn(Long id, String operator) {
+        try {
+            Reservation reservation = reservationRepository.findById(id)
+                    .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
+
+            if (reservation.getCancelled()) {
+                throw BusinessException.conflict("该预定已被取消，无法签到");
+            }
+            if (Reservation.STATUS_RELEASED.equals(reservation.getStatus())) {
+                throw BusinessException.conflict("该预定已因超时未签到被释放，无法签到");
+            }
+            if (Reservation.STATUS_CHECKED_IN.equals(reservation.getStatus())) {
+                throw BusinessException.conflict("该预定已签到，请勿重复签到");
+            }
+
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime windowStart = reservation.getStartTime();
+            LocalDateTime windowEnd = reservation.getStartTime().plusMinutes(CHECKIN_WINDOW_MINUTES);
+
+            if (now.isBefore(windowStart)) {
+                throw BusinessException.badRequest(
+                        String.format("签到窗口未开启，请在 %s 之后签到",
+                                windowStart.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+            }
+            if (now.isAfter(windowEnd)) {
+                throw BusinessException.conflict(
+                        String.format("已超过签到截止时间（开始后 %d 分钟），预定已释放或即将释放，请重新预约",
+                                CHECKIN_WINDOW_MINUTES));
+            }
+
+            reservation.setStatus(Reservation.STATUS_CHECKED_IN);
+            reservation.setCheckInTime(now);
+            Reservation saved = reservationRepository.save(reservation);
+
+            createAudit(saved.getId(), ACTION_CHECK_IN, operator,
+                    String.format("签到时间 %s", now.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
+
+            log.info("签到成功 reservationId={}, operator={}, time={}", id, operator, now);
+
+            String roomName = meetingRoomService.findById(saved.getRoomId()).getName();
+            return toResponse(saved, roomName);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("签到失败 id={}", id, e);
+            throw BusinessException.badRequest("签到失败: " + e.getMessage());
+        }
+    }
+
+    @Transactional
+    public int releaseTimedOutReservations() {
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime cutoff = now.minusMinutes(CHECKIN_WINDOW_MINUTES);
+
+            List<Reservation> timedOut = entityManager.createQuery(
+                            "SELECT r FROM Reservation r WHERE r.status = :status " +
+                                    "AND r.cancelled = false " +
+                                    "AND r.startTime < :cutoff",
+                            Reservation.class)
+                    .setParameter("status", Reservation.STATUS_NORMAL)
+                    .setParameter("cutoff", cutoff)
+                    .getResultList();
+
+            for (Reservation r : timedOut) {
+                r.setStatus(Reservation.STATUS_RELEASED);
+                reservationRepository.save(r);
+                createAudit(r.getId(), ACTION_RELEASE_TIMEOUT, "SYSTEM",
+                        String.format("开始时间 %s 超过 %d 分钟未签到，自动释放时段",
+                                r.getStartTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                                CHECKIN_WINDOW_MINUTES));
+                log.info("自动释放超时未签到预定 reservationId={}, startTime={}", r.getId(), r.getStartTime());
+            }
+
+            return timedOut.size();
+        } catch (DataAccessException e) {
+            log.error("自动释放超时预定失败", e);
+            return 0;
+        }
+    }
+
+    @Transactional
+    public void cancelSingle(Long id, String operator) {
         try {
             Reservation reservation = reservationRepository.findById(id)
                     .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
@@ -170,6 +276,9 @@ public class ReservationService {
 
             reservation.setCancelled(true);
             reservationRepository.save(reservation);
+
+            createAudit(reservation.getId(), ACTION_CANCEL, operator, "取消单天预定");
+
             log.info("已取消单天预定 ID: {}, 系列 ID: {}", id, reservation.getSeriesId());
         } catch (BusinessException e) {
             throw e;
@@ -180,7 +289,7 @@ public class ReservationService {
     }
 
     @Transactional
-    public void cancelSeries(String seriesId) {
+    public void cancelSeries(String seriesId, String operator) {
         try {
             List<Reservation> reservations = entityManager.createQuery(
                             "SELECT r FROM Reservation r WHERE r.seriesId = :seriesId AND r.cancelled = false",
@@ -194,6 +303,7 @@ public class ReservationService {
             for (Reservation reservation : reservations) {
                 reservation.setCancelled(true);
                 reservationRepository.save(reservation);
+                createAudit(reservation.getId(), ACTION_CANCEL, operator, "取消整个周期系列中的一天");
             }
             log.info("已取消整个周期预定系列，Series ID: {}, 共 {} 个实例", seriesId, reservations.size());
         } catch (BusinessException e) {
@@ -201,6 +311,19 @@ public class ReservationService {
         } catch (DataAccessException e) {
             log.error("取消周期系列失败 seriesId={}", seriesId, e);
             throw BusinessException.badRequest("取消周期系列失败: " + e.getMessage());
+        }
+    }
+
+    private void createAudit(Long reservationId, String action, String operator, String remark) {
+        try {
+            ReservationAudit audit = new ReservationAudit();
+            audit.setReservationId(reservationId);
+            audit.setAction(action);
+            audit.setOperator(operator == null || operator.isBlank() ? "UNKNOWN" : operator);
+            audit.setRemark(remark);
+            auditRepository.save(audit);
+        } catch (DataAccessException e) {
+            log.error("写入审计记录失败 reservationId={}, action={}", reservationId, action, e);
         }
     }
 
@@ -326,16 +449,19 @@ public class ReservationService {
             String jpql;
             if (excludeId != null) {
                 jpql = "SELECT r FROM Reservation r WHERE r.id <> :excludeId AND r.roomId = :roomId " +
-                        "AND r.cancelled = false AND r.startTime < :endTime AND r.endTime > :startTime";
+                        "AND r.cancelled = false AND r.status <> :released " +
+                        "AND r.startTime < :endTime AND r.endTime > :startTime";
             } else {
                 jpql = "SELECT r FROM Reservation r WHERE r.roomId = :roomId " +
-                        "AND r.cancelled = false AND r.startTime < :endTime AND r.endTime > :startTime";
+                        "AND r.cancelled = false AND r.status <> :released " +
+                        "AND r.startTime < :endTime AND r.endTime > :startTime";
             }
 
             TypedQuery<Reservation> query = entityManager.createQuery(jpql, Reservation.class)
                     .setParameter("roomId", roomId)
                     .setParameter("startTime", bufferedStart)
-                    .setParameter("endTime", bufferedEnd);
+                    .setParameter("endTime", bufferedEnd)
+                    .setParameter("released", Reservation.STATUS_RELEASED);
             if (excludeId != null) {
                 query.setParameter("excludeId", excludeId);
             }
@@ -376,24 +502,41 @@ public class ReservationService {
         reservation.setRecurringType(seriesId != null ?
                 (request.getRecurringType() != null ? request.getRecurringType() : "WEEKLY") : "NONE");
         reservation.setCancelled(false);
+        reservation.setStatus(Reservation.STATUS_NORMAL);
+        reservation.setCheckInTime(null);
         return reservation;
     }
 
     private ReservationResponse toResponse(Reservation reservation, String roomName) {
-        return new ReservationResponse(
-                reservation.getId(),
-                reservation.getRoomId(),
-                roomName != null ? roomName : "未知会议室",
-                reservation.getEmployeeId(),
-                reservation.getEmployeeName(),
-                reservation.getTitle(),
-                reservation.getStartTime(),
-                reservation.getEndTime(),
-                reservation.getSeriesId(),
-                reservation.getRecurringType(),
-                reservation.getCancelled(),
-                reservation.getCreatedAt(),
-                reservation.getUpdatedAt()
+        ReservationResponse response = new ReservationResponse();
+        response.setId(reservation.getId());
+        response.setRoomId(reservation.getRoomId());
+        response.setRoomName(roomName != null ? roomName : "未知会议室");
+        response.setEmployeeId(reservation.getEmployeeId());
+        response.setEmployeeName(reservation.getEmployeeName());
+        response.setTitle(reservation.getTitle());
+        response.setStartTime(reservation.getStartTime());
+        response.setEndTime(reservation.getEndTime());
+        response.setSeriesId(reservation.getSeriesId());
+        response.setRecurringType(reservation.getRecurringType());
+        response.setCancelled(reservation.getCancelled());
+        response.setStatus(reservation.getStatus());
+        response.setCheckedIn(Reservation.STATUS_CHECKED_IN.equals(reservation.getStatus()));
+        response.setReleased(Reservation.STATUS_RELEASED.equals(reservation.getStatus()));
+        response.setCheckInTime(reservation.getCheckInTime());
+        response.setCreatedAt(reservation.getCreatedAt());
+        response.setUpdatedAt(reservation.getUpdatedAt());
+        return response;
+    }
+
+    private ReservationAuditResponse toAuditResponse(ReservationAudit audit) {
+        return new ReservationAuditResponse(
+                audit.getId(),
+                audit.getReservationId(),
+                audit.getAction(),
+                audit.getOperator(),
+                audit.getRemark(),
+                audit.getCreatedAt()
         );
     }
 }

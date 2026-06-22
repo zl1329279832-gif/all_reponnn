@@ -2,8 +2,6 @@ package com.meetingroom.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -34,11 +32,23 @@ public class MeetingRoom {
     @Column(name = "available_slots", nullable = false)
     private List<TimeSlot> availableSlots;
 
-    @CreationTimestamp
     @Column(name = "created_at", updatable = false)
+    @Convert(converter = LocalDateTimeConverter.class)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
     @Column(name = "updated_at")
+    @Convert(converter = LocalDateTimeConverter.class)
     private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate() {
+        LocalDateTime now = LocalDateTime.now();
+        this.createdAt = now;
+        this.updatedAt = now;
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
 }

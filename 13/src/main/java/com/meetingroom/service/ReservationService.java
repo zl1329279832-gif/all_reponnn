@@ -1,14 +1,19 @@
 package com.meetingroom.service;
 
 import com.meetingroom.dto.CreateReservationRequest;
+import com.meetingroom.dto.MeetingRoomResponse;
 import com.meetingroom.dto.ReservationResponse;
 import com.meetingroom.entity.MeetingRoom;
 import com.meetingroom.entity.Reservation;
 import com.meetingroom.entity.TimeSlot;
 import com.meetingroom.exception.BusinessException;
 import com.meetingroom.repository.ReservationRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.TypedQuery;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,85 +40,115 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final MeetingRoomService meetingRoomService;
 
+    @PersistenceContext
+    private EntityManager entityManager;
+
     @Transactional(readOnly = true)
     public List<ReservationResponse> findByFilters(Long roomId, Integer floor, Integer minCapacity,
                                                    LocalDate startDate, LocalDate endDate) {
-        List<Reservation> reservations;
-        LocalDateTime startDateTime = startDate != null ? startDate.atStartOfDay() : null;
-        LocalDateTime endDateTime = endDate != null ? endDate.atTime(23, 59, 59) : null;
+        try {
+            StringBuilder jpql = new StringBuilder("SELECT r FROM Reservation r WHERE r.cancelled = false");
+            if (roomId != null) {
+                jpql.append(" AND r.roomId = :roomId");
+            }
+            if (startDate != null) {
+                jpql.append(" AND r.startTime >= :startDateTime");
+            }
+            if (endDate != null) {
+                jpql.append(" AND r.endTime <= :endDateTime");
+            }
+            jpql.append(" ORDER BY r.startTime ASC");
 
-        if (roomId != null && startDateTime != null && endDateTime != null) {
-            reservations = reservationRepository.findByRoomIdAndDateTimeRange(roomId, startDateTime, endDateTime);
-        } else if (startDateTime != null && endDateTime != null) {
-            reservations = reservationRepository.findByDateTimeRange(startDateTime, endDateTime);
-        } else if (roomId != null) {
-            reservations = reservationRepository.findByRoomIdAndCancelledFalse(roomId);
-        } else {
-            reservations = reservationRepository.findAll().stream()
-                    .filter(r -> !r.getCancelled())
-                    .collect(Collectors.toList());
-        }
+            TypedQuery<Reservation> query = entityManager.createQuery(jpql.toString(), Reservation.class);
+            if (roomId != null) {
+                query.setParameter("roomId", roomId);
+            }
+            if (startDate != null) {
+                query.setParameter("startDateTime", startDate.atStartOfDay());
+            }
+            if (endDate != null) {
+                query.setParameter("endDateTime", endDate.atTime(23, 59, 59));
+            }
 
-        Map<Long, String> roomNames = meetingRoomService.findAll().stream()
-                .collect(Collectors.toMap(r -> r.getId(), r -> r.getName()));
+            List<Reservation> reservations = query.getResultList();
 
-        List<ReservationResponse> responses = reservations.stream()
-                .map(r -> toResponse(r, roomNames.get(r.getRoomId())))
-                .collect(Collectors.toList());
+            Map<Long, MeetingRoomResponse> roomInfoMap = meetingRoomService.findAll().stream()
+                    .collect(Collectors.toMap(r -> r.getId(), r -> r, (a, b) -> a));
 
-        if (floor != null || minCapacity != null) {
-            Map<Long, MeetingRoom> roomMap = meetingRoomService.findAll().stream()
-                    .collect(Collectors.toMap(r -> r.getId(), r -> {
-                        MeetingRoom room = new MeetingRoom();
-                        room.setId(r.getId());
-                        room.setName(r.getName());
-                        room.setFloor(r.getFloor());
-                        room.setCapacity(r.getCapacity());
-                        return room;
-                    }));
-
-            responses = responses.stream()
-                    .filter(r -> {
-                        MeetingRoom room = roomMap.get(r.getRoomId());
-                        if (room == null) return false;
-                        if (floor != null && !room.getFloor().equals(floor)) return false;
-                        if (minCapacity != null && room.getCapacity() < minCapacity) return false;
-                        return true;
+            List<ReservationResponse> responses = reservations.stream()
+                    .map(r -> {
+                        MeetingRoomResponse room = roomInfoMap.get(r.getRoomId());
+                        String roomName = room != null ? room.getName() : "未知会议室";
+                        return toResponse(r, roomName);
                     })
                     .collect(Collectors.toList());
-        }
 
-        return responses;
+            if (floor != null || minCapacity != null) {
+                responses = responses.stream()
+                        .filter(r -> {
+                            MeetingRoomResponse room = roomInfoMap.get(r.getRoomId());
+                            if (room == null) return false;
+                            if (floor != null && !room.getFloor().equals(floor)) return false;
+                            if (minCapacity != null && room.getCapacity() < minCapacity) return false;
+                            return true;
+                        })
+                        .collect(Collectors.toList());
+            }
+
+            return responses;
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("查询预定失败", e);
+            throw BusinessException.badRequest("查询预定失败: " + e.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)
     public ReservationResponse findById(Long id) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
+        try {
+            Reservation reservation = reservationRepository.findById(id)
+                    .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
 
-        String roomName = meetingRoomService.findById(reservation.getRoomId()).getName();
-        return toResponse(reservation, roomName);
+            String roomName = meetingRoomService.findById(reservation.getRoomId()).getName();
+            return toResponse(reservation, roomName);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("查询预定失败 id={}", id, e);
+            throw BusinessException.badRequest("查询预定失败: " + e.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)
     public List<ReservationResponse> findBySeriesId(String seriesId) {
-        List<Reservation> reservations = reservationRepository.findBySeriesIdAndCancelledFalse(seriesId);
-        if (reservations.isEmpty()) {
-            throw BusinessException.notFound("周期预定系列不存在，Series ID: " + seriesId);
+        try {
+            List<Reservation> reservations = entityManager.createQuery(
+                            "SELECT r FROM Reservation r WHERE r.seriesId = :seriesId AND r.cancelled = false ORDER BY r.startTime ASC",
+                            Reservation.class)
+                    .setParameter("seriesId", seriesId)
+                    .getResultList();
+            if (reservations.isEmpty()) {
+                throw BusinessException.notFound("周期预定系列不存在，Series ID: " + seriesId);
+            }
+
+            Map<Long, String> roomNames = meetingRoomService.findAll().stream()
+                    .collect(Collectors.toMap(r -> r.getId(), r -> r.getName()));
+
+            return reservations.stream()
+                    .map(r -> toResponse(r, roomNames.getOrDefault(r.getRoomId(), "未知会议室")))
+                    .collect(Collectors.toList());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("查询周期系列失败 seriesId={}", seriesId, e);
+            throw BusinessException.badRequest("查询周期系列失败: " + e.getMessage());
         }
-
-        Map<Long, String> roomNames = meetingRoomService.findAll().stream()
-                .collect(Collectors.toMap(r -> r.getId(), r -> r.getName()));
-
-        return reservations.stream()
-                .map(r -> toResponse(r, roomNames.get(r.getRoomId())))
-                .collect(Collectors.toList());
     }
 
     @Transactional
     public List<ReservationResponse> create(CreateReservationRequest request) {
         MeetingRoom room = meetingRoomService.getRoomEntity(request.getRoomId());
-
         validateBusinessRules(request, room);
 
         if (request.isRecurring()) {
@@ -125,42 +160,67 @@ public class ReservationService {
 
     @Transactional
     public void cancelSingle(Long id) {
-        Reservation reservation = reservationRepository.findById(id)
-                .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
+        try {
+            Reservation reservation = reservationRepository.findById(id)
+                    .orElseThrow(() -> BusinessException.notFound("预定不存在，ID: " + id));
 
-        if (reservation.getCancelled()) {
-            throw BusinessException.conflict("该预定已被取消");
+            if (reservation.getCancelled()) {
+                throw BusinessException.conflict("该预定已被取消");
+            }
+
+            reservation.setCancelled(true);
+            reservationRepository.save(reservation);
+            log.info("已取消单天预定 ID: {}, 系列 ID: {}", id, reservation.getSeriesId());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("取消预定失败 id={}", id, e);
+            throw BusinessException.badRequest("取消预定失败: " + e.getMessage());
         }
-
-        reservation.setCancelled(true);
-        reservationRepository.save(reservation);
-        log.info("已取消单天预定 ID: {}, 系列 ID: {}", id, reservation.getSeriesId());
     }
 
     @Transactional
     public void cancelSeries(String seriesId) {
-        List<Reservation> reservations = reservationRepository.findBySeriesIdAndCancelledFalse(seriesId);
-        if (reservations.isEmpty()) {
-            throw BusinessException.notFound("周期预定系列不存在，Series ID: " + seriesId);
-        }
+        try {
+            List<Reservation> reservations = entityManager.createQuery(
+                            "SELECT r FROM Reservation r WHERE r.seriesId = :seriesId AND r.cancelled = false",
+                            Reservation.class)
+                    .setParameter("seriesId", seriesId)
+                    .getResultList();
+            if (reservations.isEmpty()) {
+                throw BusinessException.notFound("周期预定系列不存在，Series ID: " + seriesId);
+            }
 
-        for (Reservation reservation : reservations) {
-            reservation.setCancelled(true);
-            reservationRepository.save(reservation);
+            for (Reservation reservation : reservations) {
+                reservation.setCancelled(true);
+                reservationRepository.save(reservation);
+            }
+            log.info("已取消整个周期预定系列，Series ID: {}, 共 {} 个实例", seriesId, reservations.size());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("取消周期系列失败 seriesId={}", seriesId, e);
+            throw BusinessException.badRequest("取消周期系列失败: " + e.getMessage());
         }
-        log.info("已取消整个周期预定系列，Series ID: {}, 共 {} 个实例", seriesId, reservations.size());
     }
 
     private List<ReservationResponse> createSingleReservation(CreateReservationRequest request, MeetingRoom room) {
-        checkConflict(request.getRoomId(), request.getStartTime(), request.getEndTime(), null);
+        try {
+            checkConflict(request.getRoomId(), request.getStartTime(), request.getEndTime(), null);
 
-        Reservation reservation = buildReservation(request, null, request.getStartTime(), request.getEndTime());
-        Reservation saved = reservationRepository.save(reservation);
+            Reservation reservation = buildReservation(request, null, request.getStartTime(), request.getEndTime());
+            Reservation saved = reservationRepository.save(reservation);
 
-        log.info("创建单次预定成功，ID: {}, 会议室: {}, 时间: {} - {}",
-                saved.getId(), room.getName(), saved.getStartTime(), saved.getEndTime());
+            log.info("创建单次预定成功，ID: {}, 会议室: {}, 时间: {} - {}",
+                    saved.getId(), room.getName(), saved.getStartTime(), saved.getEndTime());
 
-        return List.of(toResponse(saved, room.getName()));
+            return List.of(toResponse(saved, room.getName()));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("创建单次预定失败", e);
+            throw BusinessException.badRequest("创建预定失败: " + e.getMessage());
+        }
     }
 
     private List<ReservationResponse> createRecurringReservations(CreateReservationRequest request, MeetingRoom room) {
@@ -195,15 +255,20 @@ public class ReservationService {
             throw BusinessException.conflict("无法创建周期预定，所有日期都存在冲突或不符合规则: " + String.join("; ", conflicts));
         }
 
-        List<Reservation> saved = reservationRepository.saveAll(createdReservations);
+        try {
+            List<Reservation> saved = reservationRepository.saveAll(createdReservations);
 
-        log.info("创建周期预定成功，Series ID: {}, 成功创建 {} 个实例，跳过 {} 个（{}）",
-                seriesId, saved.size(), conflicts.size(),
-                conflicts.isEmpty() ? "无冲突" : String.join("; ", conflicts));
+            log.info("创建周期预定成功，Series ID: {}, 成功创建 {} 个实例，跳过 {} 个（{}）",
+                    seriesId, saved.size(), conflicts.size(),
+                    conflicts.isEmpty() ? "无冲突" : String.join("; ", conflicts));
 
-        return saved.stream()
-                .map(r -> toResponse(r, room.getName()))
-                .collect(Collectors.toList());
+            return saved.stream()
+                    .map(r -> toResponse(r, room.getName()))
+                    .collect(Collectors.toList());
+        } catch (DataAccessException e) {
+            log.error("批量保存周期预定失败 seriesId={}", seriesId, e);
+            throw BusinessException.badRequest("创建周期预定失败: " + e.getMessage());
+        }
     }
 
     private void validateBusinessRules(CreateReservationRequest request, MeetingRoom room) {
@@ -219,11 +284,11 @@ public class ReservationService {
         }
 
         Duration duration = Duration.between(startTime, endTime);
-        if (duration.toHours() > MAX_DURATION_HOURS ||
-            (duration.toHours() == MAX_DURATION_HOURS && duration.toMinutesPart() > 0)) {
+        long minutes = duration.toMinutes();
+        if (minutes > MAX_DURATION_HOURS * 60L) {
             throw BusinessException.badRequest(
-                String.format("单次预定最长不超过 %d 小时，当前时长: %.1f 小时",
-                    MAX_DURATION_HOURS, duration.toMinutes() / 60.0));
+                    String.format("单次预定最长不超过 %d 小时，当前时长: %.1f 小时",
+                            MAX_DURATION_HOURS, minutes / 60.0));
         }
 
         if (!startTime.toLocalDate().isEqual(endTime.toLocalDate())) {
@@ -236,7 +301,7 @@ public class ReservationService {
                         .map(s -> s.getStart() + "-" + s.getEnd())
                         .collect(Collectors.joining(", "));
                 throw BusinessException.badRequest(
-                    String.format("预定时间不在会议室可预约时段内，当前会议室可预约时段: %s", slotsStr));
+                        String.format("预定时间不在会议室可预约时段内，当前会议室可预约时段: %s", slotsStr));
             }
         }
     }
@@ -254,30 +319,47 @@ public class ReservationService {
     }
 
     private void checkConflict(Long roomId, LocalDateTime startTime, LocalDateTime endTime, Long excludeId) {
-        LocalDateTime bufferedStart = startTime.minusMinutes(BUFFER_MINUTES);
-        LocalDateTime bufferedEnd = endTime.plusMinutes(BUFFER_MINUTES);
+        try {
+            LocalDateTime bufferedStart = startTime.minusMinutes(BUFFER_MINUTES);
+            LocalDateTime bufferedEnd = endTime.plusMinutes(BUFFER_MINUTES);
 
-        List<Reservation> conflicting;
-        if (excludeId != null) {
-            conflicting = reservationRepository.findConflictingReservationsExcluding(
-                    excludeId, roomId, bufferedStart, bufferedEnd);
-        } else {
-            conflicting = reservationRepository.findConflictingReservations(
-                    roomId, bufferedStart, bufferedEnd);
-        }
+            String jpql;
+            if (excludeId != null) {
+                jpql = "SELECT r FROM Reservation r WHERE r.id <> :excludeId AND r.roomId = :roomId " +
+                        "AND r.cancelled = false AND r.startTime < :endTime AND r.endTime > :startTime";
+            } else {
+                jpql = "SELECT r FROM Reservation r WHERE r.roomId = :roomId " +
+                        "AND r.cancelled = false AND r.startTime < :endTime AND r.endTime > :startTime";
+            }
 
-        if (!conflicting.isEmpty()) {
-            String conflictDetails = conflicting.stream()
-                    .map(r -> String.format("%s (%s - %s, 前后各 %d 分钟缓冲)",
-                            r.getTitle(),
-                            r.getStartTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
-                            r.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")),
-                            BUFFER_MINUTES))
-                    .collect(Collectors.joining("; "));
+            TypedQuery<Reservation> query = entityManager.createQuery(jpql, Reservation.class)
+                    .setParameter("roomId", roomId)
+                    .setParameter("startTime", bufferedStart)
+                    .setParameter("endTime", bufferedEnd);
+            if (excludeId != null) {
+                query.setParameter("excludeId", excludeId);
+            }
 
-            throw BusinessException.conflict(
-                String.format("预定时段存在冲突（含前后各 %d 分钟缓冲）。冲突的预定: %s",
-                    BUFFER_MINUTES, conflictDetails));
+            List<Reservation> conflicting = query.getResultList();
+
+            if (!conflicting.isEmpty()) {
+                String conflictDetails = conflicting.stream()
+                        .map(r -> String.format("%s (%s - %s, 前后各 %d 分钟缓冲)",
+                                r.getTitle(),
+                                r.getStartTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")),
+                                r.getEndTime().format(DateTimeFormatter.ofPattern("HH:mm")),
+                                BUFFER_MINUTES))
+                        .collect(Collectors.joining("; "));
+
+                throw BusinessException.conflict(
+                        String.format("预定时段存在冲突（含前后各 %d 分钟缓冲）。冲突的预定: %s",
+                                BUFFER_MINUTES, conflictDetails));
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (DataAccessException e) {
+            log.error("冲突检测失败 roomId={}, start={}, end={}", roomId, startTime, endTime, e);
+            throw BusinessException.badRequest("冲突检测失败: " + e.getMessage());
         }
     }
 

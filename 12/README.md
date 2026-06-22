@@ -7,8 +7,8 @@
 - **Java 17**
 - **Spring Boot 3.2.5**
 - **Spring Data JPA**
-- **H2 Database** (默认，文件模式)
-- **PostgreSQL** (可切换)
+- **H2 Database** (默认，文件模式，开箱即用)
+- **PostgreSQL** (可切换，见下方说明)
 - **Lombok**
 
 ## 项目结构
@@ -81,8 +81,8 @@ src/main/java/com/delivery/
 
 ### 3. 幂等性保障
 
-- 同一运单号 + 同一事件类型 的重复回调只推进一次状态
-- 支持自定义 requestId 作为幂等键
+- 同一运单号 + 同一事件类型的重复回调只推进一次状态
+- 支持自定义 requestKey 作为幂等键
 - 乱序回调会被状态机拒收
 
 ### 4. 取消回滚
@@ -102,38 +102,39 @@ src/main/java/com/delivery/
 - JDK 17+
 - Maven 3.6+
 
-### 构建与运行（Windows）
+### 构建、测试与运行（Windows）
+
+**默认路径：直接打包即可自动跑完 18 个集成测试，无需跳过任何步骤。**
 
 ```powershell
-# 打包
-mvn clean package -DskipTests
+# ✅ 推荐：一条命令完成"跑测试 + 出 jar"（18 个用例全绿后才会打包）
+mvn clean package
 
-# 运行（默认 H2 文件模式）
+# 也可以单独跑测试（H2 内存模式，不依赖外部数据库）
+mvn clean test
+
+# 运行（默认 H2 文件模式，开箱即用）
 java -jar target/instant-delivery-1.0.0.jar
 
 # 或者使用 Maven 直接运行
 mvn spring-boot:run
 ```
 
+> ⚠️ **除非你明确知道要跳过测试，否则**不要**加 `-DskipTests`。项目默认配置就是能一键跑绿的。**
+
 服务启动后访问：http://localhost:8080
 
-H2 控制台：http://localhost:8080/h2-console
+H2 控制台：http://localhost:8080/h2-console（JDBC URL: `jdbc:h2:file:./data/delivery`）
 
 ### 切换到 PostgreSQL
 
-修改 `application.yml` 中的 active profile：
+默认使用 H2 文件模式，无需额外配置。如需切换到 PostgreSQL，启动时指定 profile：
 
-```yaml
-spring:
-  profiles:
-    active: pg
-```
-
-或启动时指定：
-
-```bash
+```powershell
 java -jar target/instant-delivery-1.0.0.jar --spring.profiles.active=pg
 ```
+
+PostgreSQL 连接信息在 `application-pg.yml` 中配置，默认为 `localhost:5432/delivery`。
 
 ## API 接口
 
@@ -194,22 +195,22 @@ java -jar target/instant-delivery-1.0.0.jar --spring.profiles.active=pg
 
 ## 测试
 
-运行集成测试：
-
 ```powershell
-mvn test
+mvn clean test
 ```
 
-测试覆盖范围：
+18 个用例，覆盖范围：
 - 运单创建与查询
-- 状态机流转（正常路径 + 异常路径）
+- 状态机流转（正常路径 + 异常路径 + 终态判断）
 - 幂等性（重复回调只推进一次）
 - 乱序回调拒绝
-- 取消回滚（已揽收后取消）
-- 运单改派
+- 待揽收取消 / 已揽收取消回滚扣款 / 已签收不可取消
+- 运单改派 / 终态不可改派
 - 轨迹时间线排序
 - 骑手负载统计
 - 派单策略（同网格优先）
+
+测试使用 H2 内存模式（`create-drop`），不依赖外部数据库，不与主应用数据互相干扰。
 
 ## 配置说明
 
@@ -220,10 +221,12 @@ mvn test
 
 ## 数据库表说明
 
-### delivery_order - 运单表
-### rider - 骑手表
-### track_event - 轨迹事件表
-### idempotent_record - 幂等记录表
+| 表名 | 说明 |
+|------|------|
+| `delivery_order` | 运单表 |
+| `rider` | 骑手表 |
+| `track_event` | 轨迹事件表 |
+| `idempotent_record` | 幂等记录表 |
 
 详细字段请参考实体类定义。
 

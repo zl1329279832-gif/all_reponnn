@@ -17,7 +17,10 @@ public class Requisition {
     public enum Status {
         PENDING,
         APPROVED,
-        REJECTED
+        PARTIALLY_ISSUED,
+        FULFILLED,
+        REJECTED,
+        CLOSED
     }
 
     @Id
@@ -32,6 +35,12 @@ public class Requisition {
 
     @Column(nullable = false)
     private Integer quantity;
+
+    @Column(nullable = false)
+    private Integer issuedQuantity = 0;
+
+    @Column(nullable = false)
+    private Integer returnedQuantity = 0;
 
     @Column(nullable = false)
     private String researcher;

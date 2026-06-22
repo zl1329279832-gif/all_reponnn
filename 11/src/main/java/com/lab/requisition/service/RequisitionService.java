@@ -60,18 +60,20 @@ public class RequisitionService {
 
         Sku sku = skuService.getById(request.getSkuId());
 
-        Integer totalStock = inventoryService.getTotalStock(request.getSkuId());
-        if (totalStock < request.getQuantity()) {
-            throw new RuntimeException("Insufficient stock. Available: "
-                    + totalStock + ", requested: " + request.getQuantity());
+        Integer availableStock = inventoryService.getAvailableStock(request.getSkuId());
+        if (availableStock < request.getQuantity()) {
+            throw new RuntimeException("Insufficient available stock. Available: "
+                    + availableStock + ", requested: " + request.getQuantity());
         }
 
-        inventoryService.deductStockFromAnyLocation(request.getSkuId(), request.getQuantity());
+        inventoryService.reserveStock(request.getSkuId(), request.getQuantity());
 
         Requisition requisition = new Requisition();
         requisition.setIdempotencyKey(idempotencyKey);
         requisition.setSkuId(request.getSkuId());
         requisition.setQuantity(request.getQuantity());
+        requisition.setIssuedQuantity(0);
+        requisition.setReturnedQuantity(0);
         requisition.setResearcher(request.getResearcher());
         requisition.setPurpose(request.getPurpose());
         requisition.setStatus(Requisition.Status.PENDING);
@@ -87,10 +89,10 @@ public class RequisitionService {
         );
 
         auditService.log(
-                AuditLog.Action.STOCK_DEDUCTED,
+                AuditLog.Action.STOCK_RESERVED,
                 saved.getId(),
                 "system",
-                "Deducted " + request.getQuantity() + " units from stock for SKU " + sku.getSkuCode()
+                "Reserved " + request.getQuantity() + " units for SKU " + sku.getSkuCode()
         );
 
         return saved;
@@ -135,7 +137,7 @@ public class RequisitionService {
         req.setApprovalRemark(request.getRemark());
         req.setApprovedAt(LocalDateTime.now());
 
-        inventoryService.restoreStockToFirstLocation(req.getSkuId(), req.getQuantity());
+        inventoryService.releaseReservedStock(req.getSkuId(), req.getQuantity());
 
         Requisition saved = requisitionRepository.save(req);
 
@@ -150,11 +152,137 @@ public class RequisitionService {
         );
 
         auditService.log(
-                AuditLog.Action.STOCK_RESTORED,
+                AuditLog.Action.STOCK_RELEASED,
                 saved.getId(),
                 "system",
-                "Restored " + req.getQuantity() + " units to stock for SKU " + sku.getSkuCode()
+                "Released " + req.getQuantity() + " reserved units for SKU " + sku.getSkuCode()
         );
+
+        return saved;
+    }
+
+    @Transactional
+    public Requisition issue(Long id, int quantity, String operator) {
+        Requisition req = getById(id);
+        if (req.getStatus() != Requisition.Status.APPROVED
+                && req.getStatus() != Requisition.Status.PARTIALLY_ISSUED) {
+            throw new RuntimeException("Requisition is not eligible for issue. Current status: " + req.getStatus());
+        }
+
+        int remainingToIssue = req.getQuantity() - req.getIssuedQuantity();
+        if (quantity > remainingToIssue) {
+            throw new RuntimeException("Cannot issue more than remaining quantity. "
+                    + "Remaining: " + remainingToIssue + ", requested: " + quantity);
+        }
+
+        inventoryService.issueStock(req.getSkuId(), quantity);
+
+        int newIssued = req.getIssuedQuantity() + quantity;
+        req.setIssuedQuantity(newIssued);
+
+        if (newIssued >= req.getQuantity()) {
+            req.setStatus(Requisition.Status.FULFILLED);
+        } else {
+            req.setStatus(Requisition.Status.PARTIALLY_ISSUED);
+        }
+
+        Requisition saved = requisitionRepository.save(req);
+
+        Sku sku = skuService.getById(req.getSkuId());
+        auditService.log(
+                AuditLog.Action.STOCK_ISSUED,
+                saved.getId(),
+                operator,
+                "Issued " + quantity + " units for SKU " + sku.getSkuCode()
+                        + ". Total issued: " + newIssued + "/" + req.getQuantity()
+        );
+
+        return saved;
+    }
+
+    @Transactional
+    public Requisition returnStock(Long id, int quantity, String operator) {
+        Requisition req = getById(id);
+
+        if (req.getStatus() != Requisition.Status.PARTIALLY_ISSUED
+                && req.getStatus() != Requisition.Status.FULFILLED) {
+            throw new RuntimeException("Requisition is not eligible for return. Current status: " + req.getStatus());
+        }
+
+        int issuedNet = req.getIssuedQuantity() - req.getReturnedQuantity();
+        if (quantity > issuedNet) {
+            throw new RuntimeException("Cannot return more than net issued quantity. "
+                    + "Net issued: " + issuedNet + ", returning: " + quantity);
+        }
+
+        LocalDateTime firstIssueTime = req.getApprovedAt();
+        if (firstIssueTime == null) {
+            firstIssueTime = req.getCreatedAt();
+        }
+        if (LocalDateTime.now().isAfter(firstIssueTime.plusDays(7))) {
+            throw new RuntimeException("Return window expired. Returns must be made within 7 days of approval.");
+        }
+
+        inventoryService.returnStock(req.getSkuId(), quantity);
+
+        int newReturned = req.getReturnedQuantity() + quantity;
+        req.setReturnedQuantity(newReturned);
+
+        if (req.getStatus() == Requisition.Status.FULFILLED
+                && newReturned < req.getQuantity()) {
+            req.setStatus(Requisition.Status.PARTIALLY_ISSUED);
+        }
+
+        Requisition saved = requisitionRepository.save(req);
+
+        Sku sku = skuService.getById(req.getSkuId());
+        auditService.log(
+                AuditLog.Action.STOCK_RETURNED,
+                saved.getId(),
+                operator,
+                "Returned " + quantity + " units for SKU " + sku.getSkuCode()
+                        + ". Total returned: " + newReturned + ", net issued: "
+                        + (req.getIssuedQuantity() - newReturned)
+        );
+
+        return saved;
+    }
+
+    @Transactional
+    public Requisition close(Long id, String operator) {
+        Requisition req = getById(id);
+        if (req.getStatus() == Requisition.Status.CLOSED
+                || req.getStatus() == Requisition.Status.REJECTED
+                || req.getStatus() == Requisition.Status.FULFILLED) {
+            throw new RuntimeException("Requisition cannot be closed. Current status: " + req.getStatus());
+        }
+
+        int remainingReserved = req.getQuantity() - req.getIssuedQuantity();
+        if (remainingReserved > 0) {
+            inventoryService.releaseReservedStock(req.getSkuId(), remainingReserved);
+        }
+
+        req.setStatus(Requisition.Status.CLOSED);
+        Requisition saved = requisitionRepository.save(req);
+
+        Sku sku = skuService.getById(req.getSkuId());
+        auditService.log(
+                AuditLog.Action.REQUISITION_CLOSED,
+                saved.getId(),
+                operator,
+                "Closed requisition for SKU " + sku.getSkuCode()
+                        + ". Released " + remainingReserved + " unissued reserved units."
+        );
+
+        if (remainingReserved > 0) {
+            auditService.log(
+                    AuditLog.Action.STOCK_RELEASED,
+                    saved.getId(),
+                    "system",
+                    "Released " + remainingReserved + " reserved units for SKU " + sku.getSkuCode()
+                            + " due to requisition closure"
+            );
+        }
 
         return saved;
     }

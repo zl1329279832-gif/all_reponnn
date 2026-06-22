@@ -1,7 +1,9 @@
 package com.lab.requisition.controller;
 
 import com.lab.requisition.dto.ApprovalRequest;
+import com.lab.requisition.dto.IssueRequest;
 import com.lab.requisition.dto.RequisitionCreateRequest;
+import com.lab.requisition.dto.ReturnRequest;
 import com.lab.requisition.entity.AuditLog;
 import com.lab.requisition.entity.Requisition;
 import com.lab.requisition.service.AuditService;
@@ -16,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/requisitions")
@@ -72,5 +75,27 @@ public class RequisitionController {
             @PathVariable Long id,
             @Valid @RequestBody ApprovalRequest request) {
         return ResponseEntity.ok(requisitionService.reject(id, request));
+    }
+
+    @PostMapping("/{id}/issue")
+    public ResponseEntity<Requisition> issue(
+            @PathVariable Long id,
+            @Valid @RequestBody IssueRequest request) {
+        return ResponseEntity.ok(requisitionService.issue(id, request.getQuantity(), request.getOperator()));
+    }
+
+    @PostMapping("/{id}/return")
+    public ResponseEntity<Requisition> returnStock(
+            @PathVariable Long id,
+            @Valid @RequestBody ReturnRequest request) {
+        return ResponseEntity.ok(requisitionService.returnStock(id, request.getQuantity(), request.getOperator()));
+    }
+
+    @PostMapping("/{id}/close")
+    public ResponseEntity<Requisition> close(
+            @PathVariable Long id,
+            @RequestBody Map<String, String> body) {
+        String operator = body.getOrDefault("operator", "system");
+        return ResponseEntity.ok(requisitionService.close(id, operator));
     }
 }

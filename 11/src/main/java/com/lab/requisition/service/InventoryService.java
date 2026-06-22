@@ -6,7 +6,6 @@ import com.lab.requisition.repository.InventoryRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,8 +34,18 @@ public class InventoryService {
     }
 
     @Transactional(readOnly = true)
-    public Integer getTotalStock(Long skuId) {
+    public Integer getAvailableStock(Long skuId) {
         return inventoryRepository.sumQuantityBySkuId(skuId);
+    }
+
+    @Transactional(readOnly = true)
+    public Integer getReservedStock(Long skuId) {
+        return inventoryRepository.sumReservedQuantityBySkuId(skuId);
+    }
+
+    @Transactional(readOnly = true)
+    public Integer getTotalStock(Long skuId) {
+        return getAvailableStock(skuId) + getReservedStock(skuId);
     }
 
     @Transactional
@@ -50,6 +59,7 @@ public class InventoryService {
         inv.setSkuId(request.getSkuId());
         inv.setLocation(request.getLocation());
         inv.setQuantity(request.getQuantity());
+        inv.setReservedQuantity(0);
         return inventoryRepository.save(inv);
     }
 
@@ -61,56 +71,77 @@ public class InventoryService {
     }
 
     @Transactional
-    public void deductStock(Long skuId, int quantity, String location) {
-        Inventory inv = inventoryRepository.findBySkuIdAndLocation(skuId, location)
-                .orElseThrow(() -> new RuntimeException(
-                        "Inventory not found for SKU " + skuId + " at " + location));
-
-        if (inv.getQuantity() < quantity) {
-            throw new RuntimeException("Insufficient stock. Available: "
-                    + inv.getQuantity() + ", requested: " + quantity);
-        }
-
-        inv.setQuantity(inv.getQuantity() - quantity);
-        inventoryRepository.save(inv);
-    }
-
-    @Transactional
-    public void deductStockFromAnyLocation(Long skuId, int quantity) {
+    public void reserveStock(Long skuId, int quantity) {
         List<Inventory> inventories = inventoryRepository.findBySkuId(skuId);
         int remaining = quantity;
 
         for (Inventory inv : inventories) {
             if (remaining <= 0) break;
-            int deduct = Math.min(inv.getQuantity(), remaining);
-            if (deduct > 0) {
-                inv.setQuantity(inv.getQuantity() - deduct);
+            int reserve = Math.min(inv.getQuantity(), remaining);
+            if (reserve > 0) {
+                inv.setQuantity(inv.getQuantity() - reserve);
+                inv.setReservedQuantity(inv.getReservedQuantity() + reserve);
                 inventoryRepository.save(inv);
-                remaining -= deduct;
+                remaining -= reserve;
             }
         }
 
         if (remaining > 0) {
-            throw new RuntimeException("Insufficient total stock for SKU "
-                    + skuId + ". Short by " + remaining);
+            throw new RuntimeException("Insufficient available stock for SKU "
+                    + skuId + ". Available: " + (quantity - remaining) + ", requested: " + quantity);
         }
     }
 
     @Transactional
-    public void restoreStock(Long skuId, int quantity, String location) {
-        Inventory inv = inventoryRepository.findBySkuIdAndLocation(skuId, location)
-                .orElseThrow(() -> new RuntimeException(
-                        "Inventory not found for SKU " + skuId + " at " + location));
-        inv.setQuantity(inv.getQuantity() + quantity);
-        inventoryRepository.save(inv);
+    public void releaseReservedStock(Long skuId, int quantity) {
+        List<Inventory> inventories = inventoryRepository.findBySkuId(skuId);
+        int remaining = quantity;
+
+        for (Inventory inv : inventories) {
+            if (remaining <= 0) break;
+            int release = Math.min(inv.getReservedQuantity(), remaining);
+            if (release > 0) {
+                inv.setReservedQuantity(inv.getReservedQuantity() - release);
+                inv.setQuantity(inv.getQuantity() + release);
+                inventoryRepository.save(inv);
+                remaining -= release;
+            }
+        }
+
+        if (remaining > 0) {
+            throw new RuntimeException("Insufficient reserved stock for SKU "
+                    + skuId + ". Reserved: " + (quantity - remaining) + ", trying to release: " + quantity);
+        }
     }
 
     @Transactional
-    public void restoreStockToFirstLocation(Long skuId, int quantity) {
+    public void issueStock(Long skuId, int quantity) {
+        List<Inventory> inventories = inventoryRepository.findBySkuId(skuId);
+        int remaining = quantity;
+
+        for (Inventory inv : inventories) {
+            if (remaining <= 0) break;
+            int issue = Math.min(inv.getReservedQuantity(), remaining);
+            if (issue > 0) {
+                inv.setReservedQuantity(inv.getReservedQuantity() - issue);
+                inventoryRepository.save(inv);
+                remaining -= issue;
+            }
+        }
+
+        if (remaining > 0) {
+            throw new RuntimeException("Insufficient reserved stock for SKU "
+                    + skuId + ". Reserved: " + (quantity - remaining) + ", trying to issue: " + quantity);
+        }
+    }
+
+    @Transactional
+    public void returnStock(Long skuId, int quantity) {
         List<Inventory> inventories = inventoryRepository.findBySkuId(skuId);
         if (inventories.isEmpty()) {
             throw new RuntimeException("No inventory found for SKU: " + skuId);
         }
+
         Inventory inv = inventories.get(0);
         inv.setQuantity(inv.getQuantity() + quantity);
         inventoryRepository.save(inv);

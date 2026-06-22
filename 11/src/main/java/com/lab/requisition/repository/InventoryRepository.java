@@ -20,6 +20,9 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     @Query("SELECT COALESCE(SUM(i.quantity), 0) FROM Inventory i WHERE i.skuId = :skuId")
     Integer sumQuantityBySkuId(Long skuId);
 
+    @Query("SELECT COALESCE(SUM(i.reservedQuantity), 0) FROM Inventory i WHERE i.skuId = :skuId")
+    Integer sumReservedQuantityBySkuId(Long skuId);
+
     @Lock(LockModeType.OPTIMISTIC_FORCE_INCREMENT)
     @Query("SELECT i FROM Inventory i WHERE i.id = :id")
     Optional<Inventory> findByIdWithOptimisticLock(Long id);

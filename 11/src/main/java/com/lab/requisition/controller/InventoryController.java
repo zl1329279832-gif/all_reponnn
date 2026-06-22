@@ -39,8 +39,14 @@ public class InventoryController {
 
     @GetMapping("/sku/{skuId}/total")
     public ResponseEntity<Map<String, Integer>> getTotalStock(@PathVariable Long skuId) {
+        Integer available = inventoryService.getAvailableStock(skuId);
+        Integer reserved = inventoryService.getReservedStock(skuId);
         Integer total = inventoryService.getTotalStock(skuId);
-        return ResponseEntity.ok(Map.of("totalStock", total));
+        return ResponseEntity.ok(Map.of(
+                "availableStock", available,
+                "reservedStock", reserved,
+                "totalStock", total
+        ));
     }
 
     @PostMapping

@@ -5,10 +5,10 @@ INSERT INTO skus (sku_code, name, category, unit, specification, lab, safety_sto
 ('SKU-004', '分析纯乙醇', '试剂', '瓶', '500ml,AR级', '化学实验室B', 20, NOW(), NOW()),
 ('SKU-005', '一次性手套', '防护', '盒', 'M号,无粉', '生物实验室A', 30, NOW(), NOW());
 
-INSERT INTO inventory (sku_id, location, quantity, version, created_at, updated_at) VALUES
-(1, 'A-01-01', 120, 0, NOW(), NOW()),
-(1, 'A-01-02', 30, 0, NOW(), NOW()),
-(2, 'A-02-01', 500, 0, NOW(), NOW()),
-(3, 'B-01-01', 150, 0, NOW(), NOW()),
-(4, 'B-02-01', 15, 0, NOW(), NOW()),
-(5, 'A-03-01', 25, 0, NOW(), NOW());
+INSERT INTO inventory (sku_id, location, quantity, reserved_quantity, version, created_at, updated_at) VALUES
+(1, 'A-01-01', 120, 0, 0, NOW(), NOW()),
+(1, 'A-01-02', 30, 0, 0, NOW(), NOW()),
+(2, 'A-02-01', 500, 0, 0, NOW(), NOW()),
+(3, 'B-01-01', 150, 0, 0, NOW(), NOW()),
+(4, 'B-02-01', 15, 0, 0, NOW(), NOW()),
+(5, 'A-03-01', 25, 0, 0, NOW(), NOW());

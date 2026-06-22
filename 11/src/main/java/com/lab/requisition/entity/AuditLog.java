@@ -18,6 +18,11 @@ public class AuditLog {
         REQUISITION_CREATED,
         REQUISITION_APPROVED,
         REQUISITION_REJECTED,
+        REQUISITION_CLOSED,
+        STOCK_RESERVED,
+        STOCK_RELEASED,
+        STOCK_ISSUED,
+        STOCK_RETURNED,
         STOCK_DEDUCTED,
         STOCK_RESTORED
     }

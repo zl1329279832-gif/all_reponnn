@@ -2,6 +2,7 @@ package com.delivery.controller;
 
 import com.delivery.common.Result;
 import com.delivery.dto.CreateOrderRequest;
+import com.delivery.dto.MarkExceptionRequest;
 import com.delivery.dto.OrderCallbackRequest;
 import com.delivery.entity.DeliveryOrder;
 import com.delivery.entity.TrackEvent;
@@ -98,6 +99,21 @@ public class OrderController {
     public Result<List<TrackEvent>> getTimeline(@PathVariable String orderNo) {
         List<TrackEvent> timeline = orderService.getOrderTimeline(orderNo);
         return Result.success(timeline);
+    }
+
+    @PostMapping("/{orderNo}/exception")
+    public Result<DeliveryOrder> markException(
+            @PathVariable String orderNo,
+            @RequestBody MarkExceptionRequest request) {
+        DeliveryOrder order = orderService.markException(
+                orderNo,
+                request.getReason(),
+                request.getRequestId(),
+                request.getLatitude(),
+                request.getLongitude(),
+                request.getOperator()
+        );
+        return Result.success(order);
     }
 
     @GetMapping("/rider/{riderId}")

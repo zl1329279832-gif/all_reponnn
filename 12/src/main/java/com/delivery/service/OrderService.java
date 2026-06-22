@@ -322,6 +322,170 @@ public class OrderService {
         return trackEventService.getTimeline(orderNo);
     }
 
+    @Transactional
+    public DeliveryOrder markException(String orderNo, String reason, String requestId,
+                                        Double latitude, Double longitude, String operator) {
+        String idempotentKey = requestId != null ? requestId :
+                String.format("%s_%s", orderNo, TrackEventType.EXCEPTION_MARKED);
+
+        boolean isNew = idempotentService.checkAndRecord(idempotentKey, orderNo, "EXCEPTION_MARKED");
+        if (!isNew) {
+            return orderRepository.findByOrderNo(orderNo).orElseThrow(
+                    () -> new BusinessException("运单不存在"));
+        }
+
+        DeliveryOrder order = orderRepository.findByOrderNoWithLock(orderNo)
+                .orElseThrow(() -> new BusinessException("运单不存在"));
+
+        if (stateMachine.isFinalStatus(order.getStatus())) {
+            throw new StatusTransitionException("终态运单不可标记异常");
+        }
+
+        if (order.getStatus() != OrderStatus.PICKED_UP && order.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new StatusTransitionException("当前状态不可标记异常");
+        }
+
+        int newCount = (order.getExceptionCount() == null ? 0 : order.getExceptionCount()) + 1;
+        order.setExceptionCount(newCount);
+        order.setLastExceptionReason(reason);
+        if (order.getFirstExceptionTime() == null) {
+            order.setFirstExceptionTime(LocalDateTime.now());
+        }
+
+        Long riderId = order.getRiderId();
+
+        trackEventService.addEvent(
+                orderNo,
+                TrackEventType.EXCEPTION_MARKED,
+                reason != null ? reason : "配送异常",
+                riderId,
+                latitude,
+                longitude,
+                operator
+        );
+
+        if (newCount >= 2) {
+            return returnOrderToMerchantInternal(order, operator);
+        }
+
+        order.setStatus(OrderStatus.PENDING_REDISPATCH);
+
+        if (riderId != null) {
+            riderService.decrementOrderCount(riderId);
+        }
+
+        return orderRepository.save(order);
+    }
+
+    @Transactional
+    public DeliveryOrder redispatchOrder(String orderNo, Long targetRiderId, String operator) {
+        DeliveryOrder order = orderRepository.findByOrderNoWithLock(orderNo)
+                .orElseThrow(() -> new BusinessException("运单不存在"));
+
+        if (order.getStatus() != OrderStatus.PENDING_REDISPATCH) {
+            throw new StatusTransitionException("当前状态不可重派");
+        }
+
+        Long oldRiderId = order.getRiderId();
+        Rider rider;
+
+        if (targetRiderId != null) {
+            rider = riderService.getRider(targetRiderId)
+                    .orElseThrow(() -> new BusinessException("目标骑手不存在"));
+            if (rider.getStatus() == RiderStatus.OFFLINE) {
+                throw new BusinessException("目标骑手已离线");
+            }
+        } else {
+            rider = dispatchService.findBestRider(
+                    order.getGridCode(),
+                    order.getDeliveryLatitude(),
+                    order.getDeliveryLongitude()
+            );
+            if (rider == null) {
+                throw new BusinessException("暂无可用骑手，无法重派");
+            }
+        }
+
+        if (oldRiderId != null && !oldRiderId.equals(rider.getId())) {
+            riderService.decrementOrderCount(oldRiderId);
+        }
+        riderService.incrementOrderCount(rider.getId());
+
+        order.setRiderId(rider.getId());
+        order.setRiderName(rider.getName());
+        order.setRiderPhone(rider.getPhone());
+        order.setStatus(OrderStatus.IN_TRANSIT);
+
+        trackEventService.addEvent(
+                orderNo,
+                TrackEventType.REDISPATCHED,
+                String.format("重新派单给骑手 %s", rider.getName()),
+                rider.getId(),
+                rider.getLatitude(),
+                rider.getLongitude(),
+                operator
+        );
+
+        return orderRepository.save(order);
+    }
+
+    @Transactional
+    public DeliveryOrder returnToMerchant(String orderNo, String operator) {
+        DeliveryOrder order = orderRepository.findByOrderNoWithLock(orderNo)
+                .orElseThrow(() -> new BusinessException("运单不存在"));
+
+        if (stateMachine.isFinalStatus(order.getStatus())) {
+            throw new StatusTransitionException("终态运单不可退回");
+        }
+
+        if (order.getStatus() != OrderStatus.PENDING_REDISPATCH
+                && order.getStatus() != OrderStatus.PICKED_UP
+                && order.getStatus() != OrderStatus.IN_TRANSIT) {
+            throw new StatusTransitionException("当前状态不可退回商家");
+        }
+
+        return returnOrderToMerchantInternal(order, operator);
+    }
+
+    private DeliveryOrder returnOrderToMerchantInternal(DeliveryOrder order, String operator) {
+        stateMachine.validateTransition(order.getStatus(), OrderStatus.RETURNED);
+
+        boolean wasDeducted = Boolean.TRUE.equals(order.getDeducted());
+        Long riderId = order.getRiderId();
+
+        order.setStatus(OrderStatus.RETURNED);
+        order.setReturnedTime(LocalDateTime.now());
+
+        if (wasDeducted) {
+            order.setDeducted(false);
+            trackEventService.addEvent(
+                    order.getOrderNo(),
+                    TrackEventType.RETURNED_ROLLBACK,
+                    "退回商家，回滚扣款标记",
+                    riderId,
+                    null,
+                    null,
+                    operator != null ? operator : "SYSTEM"
+            );
+        }
+
+        trackEventService.addEvent(
+                order.getOrderNo(),
+                TrackEventType.RETURNED,
+                "运单退回商家",
+                riderId,
+                null,
+                null,
+                operator != null ? operator : "SYSTEM"
+        );
+
+        if (riderId != null) {
+            riderService.decrementOrderCount(riderId);
+        }
+
+        return orderRepository.save(order);
+    }
+
     private String generateOrderNo() {
         return "OD" + System.currentTimeMillis() +
                 UUID.randomUUID().toString().substring(0, 6).toUpperCase();

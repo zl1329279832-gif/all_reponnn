@@ -72,6 +72,15 @@ public class DeliveryOrder {
 
     private Boolean deducted = false;
 
+    private Integer exceptionCount = 0;
+
+    @Column(length = 256)
+    private String lastExceptionReason;
+
+    private LocalDateTime firstExceptionTime;
+
+    private LocalDateTime returnedTime;
+
     @Column(length = 256)
     private String remark;
 

@@ -26,14 +26,24 @@ public class OrderStateMachine {
         ));
         allowedTransitions.put(OrderStatus.PICKED_UP, EnumSet.of(
                 OrderStatus.IN_TRANSIT,
+                OrderStatus.PENDING_REDISPATCH,
+                OrderStatus.RETURNED,
                 OrderStatus.CANCELLED
         ));
         allowedTransitions.put(OrderStatus.IN_TRANSIT, EnumSet.of(
                 OrderStatus.DELIVERED,
+                OrderStatus.PENDING_REDISPATCH,
+                OrderStatus.RETURNED,
+                OrderStatus.CANCELLED
+        ));
+        allowedTransitions.put(OrderStatus.PENDING_REDISPATCH, EnumSet.of(
+                OrderStatus.IN_TRANSIT,
+                OrderStatus.RETURNED,
                 OrderStatus.CANCELLED
         ));
         allowedTransitions.put(OrderStatus.DELIVERED, EnumSet.noneOf(OrderStatus.class));
         allowedTransitions.put(OrderStatus.CANCELLED, EnumSet.noneOf(OrderStatus.class));
+        allowedTransitions.put(OrderStatus.RETURNED, EnumSet.noneOf(OrderStatus.class));
 
         eventToStatusMap.put(TrackEventType.ORDER_CREATED, OrderStatus.PENDING_PICKUP);
         eventToStatusMap.put(TrackEventType.ORDER_ASSIGNED, OrderStatus.PENDING_PICKUP);
@@ -42,6 +52,9 @@ public class OrderStateMachine {
         eventToStatusMap.put(TrackEventType.DELIVERY_TRANSIT, OrderStatus.IN_TRANSIT);
         eventToStatusMap.put(TrackEventType.DELIVERY_ARRIVED, OrderStatus.IN_TRANSIT);
         eventToStatusMap.put(TrackEventType.DELIVERED, OrderStatus.DELIVERED);
+        eventToStatusMap.put(TrackEventType.EXCEPTION_MARKED, OrderStatus.PENDING_REDISPATCH);
+        eventToStatusMap.put(TrackEventType.REDISPATCHED, OrderStatus.IN_TRANSIT);
+        eventToStatusMap.put(TrackEventType.RETURNED, OrderStatus.RETURNED);
         eventToStatusMap.put(TrackEventType.CANCELLED, OrderStatus.CANCELLED);
     }
 
@@ -88,6 +101,8 @@ public class OrderStateMachine {
     }
 
     public boolean isFinalStatus(OrderStatus status) {
-        return status == OrderStatus.DELIVERED || status == OrderStatus.CANCELLED;
+        return status == OrderStatus.DELIVERED
+                || status == OrderStatus.CANCELLED
+                || status == OrderStatus.RETURNED;
     }
 }

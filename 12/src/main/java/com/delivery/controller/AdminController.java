@@ -2,6 +2,7 @@ package com.delivery.controller;
 
 import com.delivery.common.Result;
 import com.delivery.dto.ReassignRequest;
+import com.delivery.dto.RedispatchRequest;
 import com.delivery.entity.DeliveryOrder;
 import com.delivery.service.DispatchService;
 import com.delivery.service.OrderService;
@@ -22,6 +23,16 @@ public class AdminController {
                 request.getOrderNo(),
                 request.getTargetRiderId(),
                 request.getReason(),
+                request.getOperator()
+        );
+        return Result.success(order);
+    }
+
+    @PostMapping("/orders/redispatch")
+    public Result<DeliveryOrder> redispatchOrder(@RequestBody RedispatchRequest request) {
+        DeliveryOrder order = orderService.redispatchOrder(
+                request.getOrderNo(),
+                request.getTargetRiderId(),
                 request.getOperator()
         );
         return Result.success(order);

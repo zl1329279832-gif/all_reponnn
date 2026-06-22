@@ -8,6 +8,10 @@ public enum TrackEventType {
     DELIVERY_TRANSIT("配送途中"),
     DELIVERY_ARRIVED("到达收货点"),
     DELIVERED("已签收"),
+    EXCEPTION_MARKED("配送异常"),
+    REDISPATCHED("重新派单"),
+    RETURNED("退回商家"),
+    RETURNED_ROLLBACK("退回回滚"),
     REASSIGNED("运单改派"),
     CANCELLED("运单取消"),
     CANCELLED_ROLLBACK("取消回滚");
